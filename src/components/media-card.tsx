@@ -58,10 +58,28 @@ export function MediaDetail({
   title?: string;
 }) {
   const [mounted, setMounted] = useState(false);
+  const [desc, setDesc] = useState(item.description || "");
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setDesc(item.description || "");
+    if (item.description || !item.imdbId?.startsWith("tt")) return;
+    let cancelled = false;
+    void fetch(
+      `/api/search/meta?imdbId=${encodeURIComponent(item.imdbId)}&type=${item.type}`,
+    )
+      .then((r) => r.json())
+      .then((d: { meta?: MediaItem | null }) => {
+        if (!cancelled && d.meta?.description) setDesc(d.meta.description);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [item.description, item.imdbId, item.type]);
 
   useEffect(() => {
     if (!onClose || !mounted) return;
@@ -76,6 +94,14 @@ export function MediaDetail({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose, mounted]);
+
+  const descriptionBlock = desc ? (
+    <p className="detail-desc sheet-desc">{desc}</p>
+  ) : (
+    <p className="detail-desc sheet-desc hint">
+      Sin sinopsis en la base de datos pública (a veces Cinemeta no la trae).
+    </p>
+  );
 
   if (!onClose) {
     return (
@@ -152,13 +178,7 @@ export function MediaDetail({
                   <span className="poster-fallback">Sin póster</span>
                 )}
               </div>
-              {item.description ? (
-                <p className="detail-desc sheet-desc">{item.description}</p>
-              ) : (
-                <p className="detail-desc sheet-desc hint">
-                  Sin descripción disponible.
-                </p>
-              )}
+              {descriptionBlock}
             </div>
             {children}
           </div>

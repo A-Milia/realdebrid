@@ -8,6 +8,7 @@ import type { MediaItem } from "@/lib/media";
 import { rd } from "@/lib/rd-client";
 import { cleanTitle } from "@/lib/title";
 import type { RdDownload } from "@/lib/types";
+import { titleSimilarity, parseRelease } from "@/lib/media";
 
 type Props = {
   token: string;
@@ -53,19 +54,21 @@ export function DownloadsPanel({
   const groups = useMemo(() => {
     const map = new Map<string, DownloadGroup>();
     for (const d of filtered) {
+      const key = `file:${cleanTitle(d.filename) || d.id}`;
       const media = matches[d.filename];
-      const key = media?.imdbId
-        ? `${media.type}:${media.imdbId}`
-        : `file:${cleanTitle(d.filename) || d.id}`;
       const existing = map.get(key);
       if (existing) {
         existing.downloads.push(d);
-        if (!existing.media && media) existing.media = media;
       } else {
+        const parsed = parseRelease(d.filename);
+        const ok =
+          media &&
+          titleSimilarity(parsed.query || cleanTitle(d.filename), media.name) >=
+            0.34;
         map.set(key, {
           key,
-          title: media?.name || d.filename,
-          media: media ?? null,
+          title: ok ? media.name : parsed.query || d.filename,
+          media: ok ? media : null,
           downloads: [d],
         });
       }

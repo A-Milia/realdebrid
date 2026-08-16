@@ -314,6 +314,36 @@ export function AppShell() {
                   <p>Tu biblioteca Real-Debrid, lista para buscar y añadir.</p>
                 </div>
 
+                <div className="home-section-head">
+                  <h2>Accesos rápidos</h2>
+                </div>
+                <div className="home-shortcuts">
+                  <button
+                    type="button"
+                    className="home-tile tile-search"
+                    onClick={() => go("search")}
+                  >
+                    <span>Buscar</span>
+                    <small>Películas y series</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="home-tile tile-active"
+                    onClick={() => go("library")}
+                  >
+                    <span>En proceso</span>
+                    <small>{stats.torrents} torrents</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="home-tile tile-ready"
+                    onClick={() => go("library")}
+                  >
+                    <span>Listos</span>
+                    <small>{stats.downloads} archivos</small>
+                  </button>
+                </div>
+
                 {!!overviewPosters.length && (
                   <div className="home-hero-rail" aria-label="Destacados">
                     {overviewPosters.slice(0, 6).map((media) => (
@@ -342,36 +372,6 @@ export function AppShell() {
                     ))}
                   </div>
                 )}
-
-                <div className="home-section-head">
-                  <h2>Accesos</h2>
-                </div>
-                <div className="home-shortcuts">
-                  <button
-                    type="button"
-                    className="home-tile tile-search"
-                    onClick={() => go("search")}
-                  >
-                    <span>Buscar</span>
-                    <small>Películas y series</small>
-                  </button>
-                  <button
-                    type="button"
-                    className="home-tile tile-active"
-                    onClick={() => go("library")}
-                  >
-                    <span>En proceso</span>
-                    <small>{stats.torrents} torrents</small>
-                  </button>
-                  <button
-                    type="button"
-                    className="home-tile tile-ready"
-                    onClick={() => go("library")}
-                  >
-                    <span>Listos</span>
-                    <small>{stats.downloads} archivos</small>
-                  </button>
-                </div>
 
                 {detail && (
                   <MediaDetail item={detail} onClose={() => setDetail(null)} />
