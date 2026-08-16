@@ -7,18 +7,16 @@ import type { MediaItem } from "@/lib/media";
 import { rd } from "@/lib/rd-client";
 import type { RdDownload, RdTorrent } from "@/lib/types";
 import { useAuth } from "./auth-provider";
-import { DownloadsPanel } from "./downloads-panel";
 import { HostsPanel } from "./hosts-panel";
+import { LibraryPanel } from "./library-panel";
 import { MediaCard, MediaDetail } from "./media-card";
 import { SearchPanel } from "./search-panel";
-import { TorrentsPanel } from "./torrents-panel";
 import { UnrestrictPanel } from "./unrestrict-panel";
 
 export type Tab =
   | "overview"
   | "search"
-  | "downloads"
-  | "torrents"
+  | "library"
   | "unrestrict"
   | "hosts";
 
@@ -55,28 +53,19 @@ function IconSearch({ active }: { active?: boolean }) {
   );
 }
 
-function IconDownloads({ active }: { active?: boolean }) {
+function IconLibrary({ active }: { active?: boolean }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M12 4v10m0 0 4-4m-4 4-4-4M5 18h14"
+        d="M5 4.5h6.5A1.5 1.5 0 0 1 13 6v14l-3.5-2L6 20V6A1.5 1.5 0 0 1 7.5 4.5H5"
         stroke="currentColor"
         strokeWidth={active ? 2.2 : 1.8}
-        strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-function IconTorrents({ active }: { active?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M12 3v10m0 0 3.5-3.5M12 13 8.5 9.5M7 14.5c-2 1-3 2.4-3 4 0 1.4 2.7 2.5 8 2.5s8-1.1 8-2.5c0-1.6-1-3-3-4"
+        d="M13 6h4.5A1.5 1.5 0 0 1 19 7.5V20l-3-1.7L13 20V6Z"
         stroke="currentColor"
         strokeWidth={active ? 2.2 : 1.8}
-        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>
@@ -257,14 +246,14 @@ export function AppShell() {
   const titles: Record<Tab, string> = {
     overview: "Resumen",
     search: "Buscar",
-    downloads: "Descargas",
-    torrents: "Torrents",
-    unrestrict: "Unrestrict",
+    library: "Colección",
+    unrestrict: "Abrir enlace",
     hosts: "Hosts",
   };
 
-  const showLibraryFilter = tab === "downloads" || tab === "torrents";
+  const showLibraryFilter = tab === "library";
   const moreActive = tab === "unrestrict" || tab === "hosts" || moreOpen;
+  const libraryTotal = downloads.length + torrents.length;
 
   if (!user || !token) return null;
 
@@ -301,7 +290,7 @@ export function AppShell() {
               id="global-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filtrar biblioteca…"
+              placeholder="Filtrar colección…"
               inputMode="search"
               enterKeyHint="search"
             />
@@ -333,19 +322,19 @@ export function AppShell() {
                 </div>
                 <div className="stat-grid">
                   <article className="stat">
-                    <span>Descargas</span>
+                    <span>En proceso</span>
+                    <strong>{stats.torrents}</strong>
+                    <small>{stats.readyTorrents} listos en cola</small>
+                  </article>
+                  <article className="stat">
+                    <span>Para ver</span>
                     <strong>{stats.downloads}</strong>
                     <small>{formatBytes(stats.totalDownloadBytes)}</small>
                   </article>
                   <article className="stat">
-                    <span>Torrents</span>
-                    <strong>{stats.torrents}</strong>
-                    <small>{stats.readyTorrents} listos</small>
-                  </article>
-                  <article className="stat">
                     <span>Activos</span>
                     <strong>{stats.activeTorrents}</strong>
-                    <small>cola / descarga</small>
+                    <small>descargando ahora</small>
                   </article>
                   <article className="stat">
                     <span>Carátulas</span>
@@ -384,32 +373,30 @@ export function AppShell() {
                   <button
                     type="button"
                     className="btn secondary"
-                    onClick={() => go("downloads")}
+                    onClick={() => go("library")}
                   >
-                    Descargas
+                    Ver colección
                   </button>
                 </div>
               </section>
             )}
 
             {tab === "search" && (
-              <SearchPanel token={token} onAdded={() => void onRefresh()} />
-            )}
-
-            {tab === "downloads" && (
-              <DownloadsPanel
+              <SearchPanel
                 token={token}
-                items={downloads}
-                query={query}
-                onChange={setDownloads}
+                onAdded={() => void onRefresh()}
+                onGoLibrary={() => go("library")}
               />
             )}
-            {tab === "torrents" && (
-              <TorrentsPanel
+
+            {tab === "library" && (
+              <LibraryPanel
                 token={token}
-                items={torrents}
+                downloads={downloads}
+                torrents={torrents}
                 query={query}
-                onChange={setTorrents}
+                onDownloadsChange={setDownloads}
+                onTorrentsChange={setTorrents}
                 onRefresh={() => void onRefresh()}
               />
             )}
@@ -443,29 +430,16 @@ export function AppShell() {
         </button>
         <button
           type="button"
-          className={`bottom-nav-item${tab === "downloads" ? " active" : ""}`}
-          onClick={() => go("downloads")}
+          className={`bottom-nav-item${tab === "library" ? " active" : ""}`}
+          onClick={() => go("library")}
         >
-          {stats.downloads > 0 && (
+          {libraryTotal > 0 && (
             <span className="nav-count">
-              {stats.downloads > 99 ? "99+" : stats.downloads}
+              {libraryTotal > 99 ? "99+" : libraryTotal}
             </span>
           )}
-          <IconDownloads active={tab === "downloads"} />
-          Descargas
-        </button>
-        <button
-          type="button"
-          className={`bottom-nav-item${tab === "torrents" ? " active" : ""}`}
-          onClick={() => go("torrents")}
-        >
-          {stats.torrents > 0 && (
-            <span className="nav-count">
-              {stats.torrents > 99 ? "99+" : stats.torrents}
-            </span>
-          )}
-          <IconTorrents active={tab === "torrents"} />
-          Torrents
+          <IconLibrary active={tab === "library"} />
+          Colección
         </button>
         <button
           type="button"
@@ -517,7 +491,7 @@ export function AppShell() {
                 onClick={() => go("unrestrict")}
               >
                 <IconLink />
-                Unrestrict link
+                Abrir enlace
               </button>
               <button
                 type="button"

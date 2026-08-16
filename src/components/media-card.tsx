@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { MediaItem } from "@/lib/media";
 
 type Props = {
@@ -49,17 +49,33 @@ export function MediaDetail({
   item,
   onClose,
   children,
+  title,
 }: {
   item: MediaItem;
   onClose?: () => void;
   children?: ReactNode;
+  title?: string;
 }) {
-  return (
+  useEffect(() => {
+    if (!onClose) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose?.();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const body = (
     <article
-      className="media-detail"
+      className={`media-detail${onClose ? " media-detail-sheet" : ""}`}
       style={{
         backgroundImage: item.background
-          ? `linear-gradient(90deg, rgba(7,9,12,.92), rgba(7,9,12,.78)), url(${item.background})`
+          ? `linear-gradient(90deg, rgba(7,9,12,.94), rgba(7,9,12,.82)), url(${item.background})`
           : undefined,
       }}
     >
@@ -76,14 +92,18 @@ export function MediaDetail({
             />
           ) : null}
         </div>
-        <div>
-          <div className="row gap" style={{ justifyContent: "space-between" }}>
-            <h3>{item.name}</h3>
+        <div className="detail-copy">
+          <div className="detail-head">
+            <div>
+              {title && <p className="detail-kicker">{title}</p>}
+              <h3>{item.name}</h3>
+            </div>
             {onClose && (
               <button
                 type="button"
-                className="btn ghost compact"
+                className="btn ghost compact detail-close"
                 onClick={onClose}
+                aria-label="Cerrar"
               >
                 Cerrar
               </button>
@@ -94,13 +114,29 @@ export function MediaDetail({
             {item.year ? ` · ${item.year}` : ""}
             {item.rating ? ` · ★ ${item.rating}` : ""}
             {item.genres?.length
-              ? ` · ${item.genres.slice(0, 3).join(", ")}`
+              ? ` · ${item.genres.slice(0, 4).join(", ")}`
               : ""}
           </p>
-          {item.description && <p className="detail-desc">{item.description}</p>}
+          {item.description && (
+            <p className="detail-desc">{item.description}</p>
+          )}
           {children}
         </div>
       </div>
     </article>
+  );
+
+  if (!onClose) return body;
+
+  return (
+    <div className="detail-modal" role="dialog" aria-modal="true" aria-label={item.name}>
+      <button
+        type="button"
+        className="detail-backdrop"
+        aria-label="Cerrar"
+        onClick={onClose}
+      />
+      <div className="detail-modal-panel">{body}</div>
+    </div>
   );
 }

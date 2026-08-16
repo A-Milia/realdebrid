@@ -19,6 +19,7 @@ type Props = {
   query: string;
   onChange: (items: RdTorrent[]) => void;
   onRefresh: () => void;
+  embedded?: boolean;
 };
 
 type SortKey = "added" | "filename" | "bytes" | "progress" | "status";
@@ -35,6 +36,7 @@ export function TorrentsPanel({
   query,
   onChange,
   onRefresh,
+  embedded = false,
 }: Props) {
   const [magnet, setMagnet] = useState("");
   const [busy, setBusy] = useState(false);
@@ -124,7 +126,7 @@ export function TorrentsPanel({
         setSelectedFiles(info);
         setPicked(new Set((info.files ?? []).map((f) => f.id)));
       } else {
-        setMessage("Torrent añadido");
+        setMessage("Añadido a En proceso");
         onRefresh();
       }
       setMagnet("");
@@ -145,7 +147,7 @@ export function TorrentsPanel({
         [...picked].sort((a, b) => a - b).join(","),
       );
       setSelectedFiles(null);
-      setMessage("Archivos seleccionados");
+      setMessage("Archivos guardados. Cuando termine, pásalo a Listos con «Preparar enlace».");
       onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al seleccionar");
@@ -207,10 +209,12 @@ export function TorrentsPanel({
     setError(null);
     try {
       await Promise.all(torrent.links.map((link) => rd.unrestrict(token, link)));
-      setMessage(`Desbloqueados ${torrent.links.length} enlaces`);
+      setMessage(
+        `Listo: ${torrent.links.length} enlace(s) preparados. Mira la pestaña Listos.`,
+      );
       onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al unrestrict");
+      setError(err instanceof Error ? err.message : "No se pudo preparar el enlace");
     } finally {
       setBusy(false);
     }
@@ -234,12 +238,14 @@ export function TorrentsPanel({
   }
 
   return (
-    <section className="panel">
+    <section className={embedded ? "panel-embedded" : "panel"}>
       <div className="panel-head">
         <div>
-          <h2>Torrents</h2>
+          {!embedded && <h2>En proceso</h2>}
           <p>
-            {filtered.length} de {items.length}
+            {embedded
+              ? `${filtered.length} torrents que Real-Debrid está preparando`
+              : `${filtered.length} de ${items.length}`}
           </p>
         </div>
         <div className="row gap wrap">
@@ -452,17 +458,17 @@ export function TorrentsPanel({
                   {item.status === "downloaded" && !!item.links?.length && (
                     <button
                       type="button"
-                      className="btn ghost compact"
+                      className="btn primary compact"
                       disabled={busy}
                       onClick={() => void unrestrictLinks(item)}
                     >
-                      Unrestrict
+                      Preparar enlace
                     </button>
                   )}
                   {item.status === "waiting_files_selection" && (
                     <button
                       type="button"
-                      className="btn ghost compact"
+                      className="btn secondary compact"
                       onClick={() => {
                         void rd.getTorrent(token, item.id).then((info) => {
                           setSelectedFiles(info);
@@ -470,7 +476,7 @@ export function TorrentsPanel({
                         });
                       }}
                     >
-                      Archivos
+                      Elegir archivos
                     </button>
                   )}
                   <button
@@ -488,7 +494,7 @@ export function TorrentsPanel({
             {!filtered.length && (
               <tr>
                 <td colSpan={7} className="empty">
-                  No hay torrents que coincidan.
+                  No hay nada en proceso que coincida.
                 </td>
               </tr>
             )}

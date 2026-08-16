@@ -13,9 +13,16 @@ type Props = {
   items: RdDownload[];
   query: string;
   onChange: (items: RdDownload[]) => void;
+  embedded?: boolean;
 };
 
-export function DownloadsPanel({ token, items, query, onChange }: Props) {
+export function DownloadsPanel({
+  token,
+  items,
+  query,
+  onChange,
+  embedded = false,
+}: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -97,12 +104,14 @@ export function DownloadsPanel({ token, items, query, onChange }: Props) {
   }
 
   return (
-    <section className="panel">
+    <section className={embedded ? "panel-embedded" : "panel"}>
       <div className="panel-head">
         <div>
-          <h2>Descargas</h2>
+          {!embedded && <h2>Listos</h2>}
           <p>
-            {filtered.length} de {items.length} · {posterItems.length} con carátula
+            {embedded
+              ? `${filtered.length} archivos listos para abrir o copiar`
+              : `${filtered.length} de ${items.length} · ${posterItems.length} con carátula`}
           </p>
         </div>
         <div className="row gap wrap">
@@ -250,7 +259,7 @@ export function DownloadsPanel({ token, items, query, onChange }: Props) {
               {!filtered.length && (
                 <tr>
                   <td colSpan={7} className="empty">
-                    No hay descargas que coincidan.
+                    No hay archivos listos que coincidan.
                   </td>
                 </tr>
               )}
