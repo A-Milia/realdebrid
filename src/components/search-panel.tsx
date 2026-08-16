@@ -265,12 +265,13 @@ export function SearchPanel({ token, onAdded, onGoLibrary }: Props) {
     }
   }
 
-  function closeDetail() {
+  const closeDetail = useCallback(() => {
     setSelected(null);
     setTorrents([]);
     setFilePick(null);
     setMessage(null);
-  }
+    setError(null);
+  }, []);
 
   return (
     <section className="panel">

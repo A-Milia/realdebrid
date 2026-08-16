@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { MediaItem } from "@/lib/media";
 
@@ -57,12 +57,6 @@ export function MediaDetail({
   children?: ReactNode;
   title?: string;
 }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   useEffect(() => {
     if (!onClose) return;
     const prev = document.body.style.overflow;
@@ -77,75 +71,109 @@ export function MediaDetail({
     };
   }, [onClose]);
 
-  const body = (
-    <article
-      className={`media-detail${onClose ? " media-detail-sheet" : ""}`}
-      style={{
-        backgroundImage: item.background
-          ? `linear-gradient(180deg, rgba(7,9,12,.88), rgba(7,9,12,.97)), url(${item.background})`
-          : undefined,
-        backgroundColor: "#12161c",
-      }}
-    >
-      <div className="media-detail-inner">
-        <div className="detail-poster">
-          {item.poster ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={item.poster}
-              alt=""
-              loading="eager"
-              decoding="async"
-              referrerPolicy="no-referrer"
-            />
-          ) : null}
-        </div>
-        <div className="detail-copy">
-          <div className="detail-head">
-            <div>
-              {title && <p className="detail-kicker">{title}</p>}
-              <h3>{item.name}</h3>
-            </div>
-            {onClose && (
-              <button
-                type="button"
-                className="detail-close"
-                onClick={onClose}
-                aria-label="Cerrar"
-              >
-                <span aria-hidden>×</span>
-              </button>
-            )}
+  if (!onClose) {
+    return (
+      <article
+        className="media-detail"
+        style={{
+          backgroundImage: item.background
+            ? `linear-gradient(180deg, rgba(7,9,12,.88), rgba(7,9,12,.97)), url(${item.background})`
+            : undefined,
+          backgroundColor: "#12161c",
+        }}
+      >
+        <div className="media-detail-inner">
+          <div className="detail-poster">
+            {item.poster ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.poster}
+                alt=""
+                loading="eager"
+                decoding="async"
+                referrerPolicy="no-referrer"
+              />
+            ) : null}
           </div>
-          <p className="detail-sub">
-            {item.type === "series" ? "Serie" : "Película"}
-            {item.year ? ` · ${item.year}` : ""}
-            {item.rating ? ` · ★ ${item.rating}` : ""}
-            {item.genres?.length
-              ? ` · ${item.genres.slice(0, 4).join(", ")}`
-              : ""}
-          </p>
-          {item.description && (
-            <p className="detail-desc">{item.description}</p>
-          )}
-          {children}
+          <div className="detail-copy">
+            <h3>{item.name}</h3>
+            <p className="detail-sub">
+              {item.type === "series" ? "Serie" : "Película"}
+              {item.year ? ` · ${item.year}` : ""}
+              {item.rating ? ` · ★ ${item.rating}` : ""}
+            </p>
+            {item.description && (
+              <p className="detail-desc">{item.description}</p>
+            )}
+            {children}
+          </div>
         </div>
-      </div>
-    </article>
-  );
+      </article>
+    );
+  }
 
-  if (!onClose) return body;
-  if (!mounted) return null;
+  if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="detail-modal" role="dialog" aria-modal="true" aria-label={item.name}>
+    <div
+      className="detail-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={item.name}
+    >
       <button
         type="button"
         className="detail-backdrop"
         aria-label="Cerrar"
         onClick={onClose}
       />
-      <div className="detail-modal-panel">{body}</div>
+      <div className="detail-modal-panel sheet-panel">
+        <header className="sheet-top">
+          <div className="sheet-top-copy">
+            {title && <p className="detail-kicker">{title}</p>}
+            <h3>{item.name}</h3>
+            <p className="detail-sub">
+              {item.type === "series" ? "Serie" : "Película"}
+              {item.year ? ` · ${item.year}` : ""}
+              {item.rating ? ` · ★ ${item.rating}` : ""}
+              {item.genres?.length
+                ? ` · ${item.genres.slice(0, 3).join(", ")}`
+                : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="detail-close"
+            onClick={onClose}
+            aria-label="Cerrar"
+          >
+            <span aria-hidden>×</span>
+          </button>
+        </header>
+
+        <div className="sheet-body">
+          <div className="sheet-media-row">
+            <div className="detail-poster">
+              {item.poster ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={item.poster}
+                  alt=""
+                  loading="eager"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <span className="poster-fallback">Sin póster</span>
+              )}
+            </div>
+            {item.description && (
+              <p className="detail-desc sheet-desc">{item.description}</p>
+            )}
+          </div>
+          {children}
+        </div>
+      </div>
     </div>,
     document.body,
   );
