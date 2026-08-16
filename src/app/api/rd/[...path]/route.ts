@@ -54,13 +54,16 @@ async function proxy(req: NextRequest, params: { path: string[] }) {
   const responseHeaders = new Headers();
   const total = upstream.headers.get("X-Total-Count");
   if (total) responseHeaders.set("X-Total-Count", total);
-  responseHeaders.set(
-    "Content-Type",
-    upstream.headers.get("Content-Type") || "application/json",
-  );
+  const upstreamType = upstream.headers.get("Content-Type");
+  if (upstreamType) responseHeaders.set("Content-Type", upstreamType);
 
   const data = await upstream.arrayBuffer();
-  return new NextResponse(data, {
+  // No forzar application/json en respuestas vacías (204 delete/selectFiles).
+  if (!upstreamType && data.byteLength > 0) {
+    responseHeaders.set("Content-Type", "application/json");
+  }
+
+  return new NextResponse(data.byteLength ? data : null, {
     status: upstream.status,
     headers: responseHeaders,
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { MediaItem } from "@/lib/media";
 
@@ -57,8 +57,14 @@ export function MediaDetail({
   children?: ReactNode;
   title?: string;
 }) {
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
-    if (!onClose) return;
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!onClose || !mounted) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     function onKey(e: KeyboardEvent) {
@@ -69,30 +75,16 @@ export function MediaDetail({
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [onClose, mounted]);
 
   if (!onClose) {
     return (
-      <article
-        className="media-detail"
-        style={{
-          backgroundImage: item.background
-            ? `linear-gradient(180deg, rgba(7,9,12,.88), rgba(7,9,12,.97)), url(${item.background})`
-            : undefined,
-          backgroundColor: "#12161c",
-        }}
-      >
+      <article className="media-detail" style={{ backgroundColor: "#12161c" }}>
         <div className="media-detail-inner">
           <div className="detail-poster">
             {item.poster ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={item.poster}
-                alt=""
-                loading="eager"
-                decoding="async"
-                referrerPolicy="no-referrer"
-              />
+              <img src={item.poster} alt="" referrerPolicy="no-referrer" />
             ) : null}
           </div>
           <div className="detail-copy">
@@ -100,7 +92,6 @@ export function MediaDetail({
             <p className="detail-sub">
               {item.type === "series" ? "Serie" : "Película"}
               {item.year ? ` · ${item.year}` : ""}
-              {item.rating ? ` · ★ ${item.rating}` : ""}
             </p>
             {item.description && (
               <p className="detail-desc">{item.description}</p>
@@ -112,66 +103,65 @@ export function MediaDetail({
     );
   }
 
-  if (typeof document === "undefined") return null;
+  if (!mounted) return null;
 
   return createPortal(
-    <div
-      className="detail-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label={item.name}
-    >
+    <div className="detail-modal" role="dialog" aria-modal="true">
       <button
         type="button"
         className="detail-backdrop"
         aria-label="Cerrar"
         onClick={onClose}
       />
-      <div className="detail-modal-panel sheet-panel">
-        <header className="sheet-top">
-          <div className="sheet-top-copy">
-            {title && <p className="detail-kicker">{title}</p>}
-            <h3>{item.name}</h3>
-            <p className="detail-sub">
-              {item.type === "series" ? "Serie" : "Película"}
-              {item.year ? ` · ${item.year}` : ""}
-              {item.rating ? ` · ★ ${item.rating}` : ""}
-              {item.genres?.length
-                ? ` · ${item.genres.slice(0, 3).join(", ")}`
-                : ""}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="detail-close"
-            onClick={onClose}
-            aria-label="Cerrar"
-          >
-            <span aria-hidden>×</span>
-          </button>
-        </header>
+      <div className="detail-modal-panel">
+        <div className="sheet-scroll">
+          <header className="sheet-top">
+            <div className="sheet-top-copy">
+              {title && <p className="detail-kicker">{title}</p>}
+              <h3>{item.name}</h3>
+              <p className="detail-sub">
+                {item.type === "series" ? "Serie" : "Película"}
+                {item.year ? ` · ${item.year}` : ""}
+                {item.rating ? ` · ★ ${item.rating}` : ""}
+                {item.genres?.length
+                  ? ` · ${item.genres.slice(0, 3).join(", ")}`
+                  : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="detail-close"
+              onClick={onClose}
+              aria-label="Cerrar"
+            >
+              <span aria-hidden>×</span>
+            </button>
+          </header>
 
-        <div className="sheet-body">
-          <div className="sheet-media-row">
-            <div className="detail-poster">
-              {item.poster ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={item.poster}
-                  alt=""
-                  loading="eager"
-                  decoding="async"
-                  referrerPolicy="no-referrer"
-                />
+          <div className="sheet-body">
+            <div className="sheet-media-row">
+              <div className="detail-poster">
+                {item.poster ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={item.poster}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="poster-fallback">Sin póster</span>
+                )}
+              </div>
+              {item.description ? (
+                <p className="detail-desc sheet-desc">{item.description}</p>
               ) : (
-                <span className="poster-fallback">Sin póster</span>
+                <p className="detail-desc sheet-desc hint">
+                  Sin descripción disponible.
+                </p>
               )}
             </div>
-            {item.description && (
-              <p className="detail-desc sheet-desc">{item.description}</p>
-            )}
+            {children}
           </div>
-          {children}
         </div>
       </div>
     </div>,

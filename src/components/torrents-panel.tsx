@@ -8,7 +8,9 @@ import {
   formatDate,
   torrentStatusLabel,
 } from "@/lib/format";
+import type { MediaItem } from "@/lib/media";
 import { rd } from "@/lib/rd-client";
+import { cleanTitle } from "@/lib/title";
 import type { RdTorrent } from "@/lib/types";
 
 type Props = {
@@ -20,12 +22,14 @@ type Props = {
   embedded?: boolean;
 };
 
-type StatusFilter =
-  | "all"
-  | "downloaded"
-  | "active"
-  | "waiting"
-  | "failed";
+type StatusFilter = "all" | "downloaded" | "active" | "waiting" | "failed";
+
+type TorrentGroup = {
+  key: string;
+  title: string;
+  media?: MediaItem | null;
+  torrents: RdTorrent[];
+};
 
 export function TorrentsPanel({
   token,
@@ -43,39 +47,58 @@ export function TorrentsPanel({
   const [selectedFiles, setSelectedFiles] = useState<RdTorrent | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [openGroup, setOpenGroup] = useState<TorrentGroup | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = items.filter((t) => {
-      if (q) {
-        const hay = `${t.filename} ${t.hash} ${t.status}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      switch (statusFilter) {
-        case "downloaded":
-          return t.status === "downloaded";
-        case "active":
-          return t.status === "downloading" || t.status === "queued";
-        case "waiting":
-          return t.status === "waiting_files_selection";
-        case "failed":
-          return (
-            t.status === "error" ||
-            t.status === "magnet_error" ||
-            t.status === "dead" ||
-            t.status === "virus"
-          );
-        default:
-          return true;
-      }
-    });
-
-    return [...list].sort(
-      (a, b) => new Date(b.added).getTime() - new Date(a.added).getTime(),
-    );
+    return items
+      .filter((t) => {
+        if (q) {
+          const hay = `${t.filename} ${t.hash} ${t.status}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        switch (statusFilter) {
+          case "downloaded":
+            return t.status === "downloaded";
+          case "active":
+            return t.status === "downloading" || t.status === "queued";
+          case "waiting":
+            return t.status === "waiting_files_selection";
+          case "failed":
+            return ["error", "magnet_error", "dead", "virus"].includes(t.status);
+          default:
+            return true;
+        }
+      })
+      .sort(
+        (a, b) => new Date(b.added).getTime() - new Date(a.added).getTime(),
+      );
   }, [items, query, statusFilter]);
 
   const matches = useMediaMatches(filtered.map((t) => t.filename));
+
+  const groups = useMemo(() => {
+    const map = new Map<string, TorrentGroup>();
+    for (const t of filtered) {
+      const media = matches[t.filename];
+      const key = media?.imdbId
+        ? `${media.type}:${media.imdbId}`
+        : `file:${cleanTitle(t.filename) || t.id}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.torrents.push(t);
+        if (!existing.media && media) existing.media = media;
+      } else {
+        map.set(key, {
+          key,
+          title: media?.name || t.filename,
+          media: media ?? null,
+          torrents: [t],
+        });
+      }
+    }
+    return [...map.values()];
+  }, [filtered, matches]);
 
   async function addMagnet(e: React.FormEvent) {
     e.preventDefault();
@@ -90,7 +113,7 @@ export function TorrentsPanel({
       try {
         info = await rd.getTorrent(token, created.id);
       } catch {
-        setMessage("Añadido a En proceso");
+        setMessage("Añadido");
         setMagnet("");
         onRefresh();
         return;
@@ -99,7 +122,7 @@ export function TorrentsPanel({
         setSelectedFiles(info);
         setPicked(new Set((info.files ?? []).map((f) => f.id)));
       } else {
-        setMessage("Añadido a En proceso");
+        setMessage("Añadido");
         onRefresh();
       }
       setMagnet("");
@@ -120,7 +143,7 @@ export function TorrentsPanel({
         [...picked].sort((a, b) => a - b).join(","),
       );
       setSelectedFiles(null);
-      setMessage("Archivos guardados. Cuando termine, usa «Preparar enlace».");
+      setMessage("Archivos guardados");
       onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al seleccionar");
@@ -133,38 +156,51 @@ export function TorrentsPanel({
     setBusyId(id);
     setError(null);
     const previous = items;
-    onChange(items.filter((t) => t.id !== id));
+    const next = items.filter((t) => t.id !== id);
+    onChange(next);
+    setOpenGroup((g) =>
+      g
+        ? {
+            ...g,
+            torrents: g.torrents.filter((t) => t.id !== id),
+          }
+        : g,
+    );
     try {
       await rd.deleteTorrent(token, id);
       setMessage("Eliminado");
+      setOpenGroup((g) => (g && g.torrents.length === 0 ? null : g));
     } catch (err) {
-      onChange(previous);
-      setError(err instanceof Error ? err.message : "No se pudo borrar");
+      // Reconciliar: si en servidor ya no está, mantener borrado local.
+      try {
+        await rd.getTorrent(token, id);
+        onChange(previous);
+        setError(err instanceof Error ? err.message : "No se pudo borrar");
+      } catch {
+        setMessage("Eliminado");
+        setOpenGroup((g) => (g && g.torrents.length === 0 ? null : g));
+      }
     } finally {
       setBusyId(null);
     }
   }
 
-  async function deleteFailed() {
-    const failed = items.filter((t) =>
-      ["error", "magnet_error", "dead", "virus"].includes(t.status),
-    );
-    if (!failed.length) {
-      setMessage("No hay torrents fallidos");
-      return;
-    }
+  async function removeGroup(group: TorrentGroup) {
     setBusy(true);
-    const ids = new Set(failed.map((t) => t.id));
+    setError(null);
+    const ids = new Set(group.torrents.map((t) => t.id));
     const previous = items;
     onChange(items.filter((t) => !ids.has(t.id)));
+    setOpenGroup(null);
     try {
-      await Promise.all(failed.map((t) => rd.deleteTorrent(token, t.id)));
-      setMessage(`Limpiados ${failed.length} fallidos`);
-    } catch (err) {
-      onChange(previous);
-      setError(err instanceof Error ? err.message : "No se pudo limpiar");
+      await Promise.all(group.torrents.map((t) => rd.deleteTorrent(token, t.id)));
+      setMessage(`Eliminados ${group.torrents.length}`);
+    } catch {
+      onRefresh();
+      setMessage("Lista actualizada");
     } finally {
       setBusy(false);
+      void previous;
     }
   }
 
@@ -174,26 +210,13 @@ export function TorrentsPanel({
     setError(null);
     try {
       await Promise.all(torrent.links.map((link) => rd.unrestrict(token, link)));
-      setMessage(
-        `Listo: ${torrent.links.length} enlace(s) en la pestaña Listos.`,
-      );
+      setMessage("Enlace(s) listos en la pestaña Listos");
       onRefresh();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No se pudo preparar el enlace",
-      );
+      setError(err instanceof Error ? err.message : "No se pudo preparar");
     } finally {
       setBusyId(null);
     }
-  }
-
-  function toggleFile(id: number) {
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   }
 
   async function openFilePicker(id: string) {
@@ -203,10 +226,19 @@ export function TorrentsPanel({
       setSelectedFiles(info);
       setPicked(new Set((info.files ?? []).map((f) => f.id)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudieron cargar archivos");
+      setError(err instanceof Error ? err.message : "Error al cargar archivos");
     } finally {
       setBusyId(null);
     }
+  }
+
+  function groupStatus(group: TorrentGroup) {
+    if (group.torrents.some((t) => t.status === "downloaded")) return "downloaded";
+    if (group.torrents.some((t) => t.status === "downloading" || t.status === "queued"))
+      return "downloading";
+    if (group.torrents.some((t) => t.status === "waiting_files_selection"))
+      return "waiting_files_selection";
+    return group.torrents[0]?.status || "error";
   }
 
   return (
@@ -214,16 +246,11 @@ export function TorrentsPanel({
       <div className="panel-head">
         <div>
           {!embedded && <h2>En proceso</h2>}
-          <p>{filtered.length} de {items.length}</p>
+          <p>
+            {groups.length} título{groups.length === 1 ? "" : "s"} ·{" "}
+            {filtered.length} enlace{filtered.length === 1 ? "" : "s"}
+          </p>
         </div>
-        <button
-          type="button"
-          className="btn secondary compact"
-          disabled={busy}
-          onClick={() => void deleteFailed()}
-        >
-          Limpiar fallidos
-        </button>
       </div>
 
       <div className="toolbar">
@@ -267,89 +294,173 @@ export function TorrentsPanel({
       {error && <p className="banner error">{error}</p>}
 
       <div className="item-stack">
-        {filtered.map((item) => {
-          const media = matches[item.filename];
-          const rowBusy = busyId === item.id;
+        {groups.map((group) => {
+          const status = groupStatus(group);
+          const latest = group.torrents[0];
+          const progress = Math.round(
+            group.torrents.reduce((s, t) => s + t.progress, 0) /
+              group.torrents.length,
+          );
           return (
-            <article key={item.id} className="item-card">
+            <button
+              key={group.key}
+              type="button"
+              className="item-card item-card-btn"
+              onClick={() => setOpenGroup(group)}
+            >
               <div
                 className="item-poster"
                 style={{
-                  backgroundImage: media?.poster
-                    ? `url(${media.poster})`
+                  backgroundImage: group.media?.poster
+                    ? `url(${group.media.poster})`
                     : undefined,
                 }}
               />
               <div className="item-body">
                 <div className="item-title-row">
-                  <strong className="item-title">
-                    {media?.name || item.filename}
-                  </strong>
-                  <span className={`status status-${item.status}`}>
-                    {torrentStatusLabel(item.status)}
+                  <strong className="item-title">{group.title}</strong>
+                  <span className="link-count">
+                    {group.torrents.length} enlace
+                    {group.torrents.length === 1 ? "" : "s"}
                   </span>
                 </div>
-                {media?.name && (
-                  <p className="item-sub">{item.filename}</p>
-                )}
                 <div className="item-meta">
-                  <span>{formatBytes(item.bytes)}</span>
-                  <span>{formatDate(item.added)}</span>
+                  <span className={`status status-${status}`}>
+                    {torrentStatusLabel(status)}
+                  </span>
+                  <span>{formatBytes(latest.bytes)}</span>
                 </div>
                 <div className="progress item-progress">
-                  <div style={{ width: `${Math.min(100, item.progress)}%` }} />
+                  <div style={{ width: `${Math.min(100, progress)}%` }} />
                 </div>
                 <small className="item-progress-label">
-                  {Math.round(item.progress)}%
+                  Toca para ver todos los enlaces · {progress}%
                 </small>
-                <div className="item-actions">
-                  {item.status === "downloaded" && !!item.links?.length && (
-                    <button
-                      type="button"
-                      className="btn primary compact"
-                      disabled={!!busyId}
-                      onClick={() => void unrestrictLinks(item)}
-                    >
-                      {rowBusy ? "…" : "Preparar enlace"}
-                    </button>
-                  )}
-                  {item.status === "waiting_files_selection" && (
-                    <button
-                      type="button"
-                      className="btn secondary compact"
-                      disabled={!!busyId}
-                      onClick={() => void openFilePicker(item.id)}
-                    >
-                      Elegir archivos
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn ghost compact danger-text"
-                    disabled={!!busyId}
-                    onClick={() => void removeOne(item.id)}
-                  >
-                    {rowBusy ? "…" : "Borrar"}
-                  </button>
-                </div>
               </div>
-            </article>
+            </button>
           );
         })}
-        {!filtered.length && (
+        {!groups.length && (
           <p className="hint">No hay nada en proceso que coincida.</p>
         )}
       </div>
 
+      {openGroup &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="detail-modal" role="dialog" aria-modal="true">
+            <button
+              type="button"
+              className="detail-backdrop"
+              aria-label="Cerrar"
+              onClick={() => setOpenGroup(null)}
+            />
+            <div className="detail-modal-panel">
+              <div className="sheet-scroll">
+                <header className="sheet-top">
+                  <div className="sheet-top-copy">
+                    <p className="detail-kicker">Enlaces del título</p>
+                    <h3>{openGroup.title}</h3>
+                    <p className="detail-sub">
+                      {openGroup.torrents.length} enlace
+                      {openGroup.torrents.length === 1 ? "" : "s"} en Real-Debrid
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="detail-close"
+                    onClick={() => setOpenGroup(null)}
+                    aria-label="Cerrar"
+                  >
+                    <span aria-hidden>×</span>
+                  </button>
+                </header>
+                <div className="sheet-body">
+                  <div className="sheet-media-row">
+                    <div
+                      className="detail-poster"
+                      style={{
+                        backgroundImage: openGroup.media?.poster
+                          ? `url(${openGroup.media.poster})`
+                          : undefined,
+                      }}
+                    />
+                    {openGroup.media?.description ? (
+                      <p className="detail-desc sheet-desc">
+                        {openGroup.media.description}
+                      </p>
+                    ) : (
+                      <p className="hint">
+                        Elige un enlace para preparar o borrar.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="torrent-list">
+                    {openGroup.torrents.map((item) => (
+                      <div key={item.id} className="torrent-row">
+                        <div className="torrent-copy">
+                          <strong>{item.filename}</strong>
+                          <small>
+                            {torrentStatusLabel(item.status)} ·{" "}
+                            {formatBytes(item.bytes)} · {formatDate(item.added)} ·{" "}
+                            {Math.round(item.progress)}%
+                          </small>
+                        </div>
+                        <div className="item-actions">
+                          {item.status === "downloaded" && !!item.links?.length && (
+                            <button
+                              type="button"
+                              className="btn primary compact"
+                              disabled={!!busyId}
+                              onClick={() => void unrestrictLinks(item)}
+                            >
+                              {busyId === item.id ? "…" : "Preparar"}
+                            </button>
+                          )}
+                          {item.status === "waiting_files_selection" && (
+                            <button
+                              type="button"
+                              className="btn secondary compact"
+                              disabled={!!busyId}
+                              onClick={() => void openFilePicker(item.id)}
+                            >
+                              Archivos
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn ghost compact danger-text"
+                            disabled={!!busyId}
+                            onClick={() => void removeOne(item.id)}
+                          >
+                            Borrar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn danger"
+                    style={{ width: "100%", marginTop: "0.85rem" }}
+                    disabled={busy}
+                    onClick={() => void removeGroup(openGroup)}
+                  >
+                    Borrar todos los enlaces
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
       {selectedFiles &&
         typeof document !== "undefined" &&
         createPortal(
-          <div
-            className="detail-modal file-pick-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Elige archivos"
-          >
+          <div className="detail-modal file-pick-modal" role="dialog" aria-modal="true">
             <button
               type="button"
               className="detail-backdrop"
@@ -366,7 +477,14 @@ export function TorrentsPanel({
                       <input
                         type="checkbox"
                         checked={picked.has(file.id)}
-                        onChange={() => toggleFile(file.id)}
+                        onChange={() =>
+                          setPicked((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(file.id)) next.delete(file.id);
+                            else next.add(file.id);
+                            return next;
+                          })
+                        }
                       />
                       <span>{file.path}</span>
                       <em>{formatBytes(file.bytes)}</em>
