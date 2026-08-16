@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   exchangeDeviceToken,
   pollDeviceCredentials,
@@ -14,12 +14,31 @@ export function LoginScreen() {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"token" | "device">("token");
+  const [mode, setMode] = useState<"token" | "device" | "admin">("token");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminReady, setAdminReady] = useState(false);
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const brandTapsRef = useRef(0);
+  const brandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [device, setDevice] = useState<{
     userCode: string;
     verificationUrl: string;
     deviceCode: string;
   } | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/admin/login")
+      .then((r) => r.json())
+      .then((d: { configured?: boolean }) => setAdminReady(!!d.configured))
+      .catch(() => setAdminReady(false));
+  }, []);
+
+  useEffect(() => {
+    // Secret URL unlock: /?admin=1
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("admin") === "1") setAdminUnlocked(true);
+  }, []);
 
   useEffect(() => {
     if (!device) return;
@@ -60,12 +79,48 @@ export function LoginScreen() {
     };
   }, [device, loginWithToken]);
 
+  function onBrandTap() {
+    if (brandTimerRef.current) clearTimeout(brandTimerRef.current);
+    brandTapsRef.current += 1;
+    if (brandTapsRef.current >= 5) {
+      setAdminUnlocked(true);
+      setMode("admin");
+      brandTapsRef.current = 0;
+      return;
+    }
+    brandTimerRef.current = setTimeout(() => {
+      brandTapsRef.current = 0;
+    }, 2500);
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setLocalError(null);
     try {
       await loginWithToken(token);
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAdminSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setLocalError(null);
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      const data = (await res.json()) as { token?: string; error?: string };
+      if (!res.ok || !data.token) {
+        throw new Error(data.error || "No se pudo entrar como admin");
+      }
+      await loginWithToken(data.token);
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : "Error");
     } finally {
@@ -95,7 +150,9 @@ export function LoginScreen() {
     <div className="login">
       <div className="login-bg" aria-hidden />
       <div className="login-panel">
-        <p className="brand-mark">RealDebrid</p>
+        <button type="button" className="brand-mark brand-tap" onClick={onBrandTap}>
+          RealDebrid
+        </button>
         <h1>Tu catálogo, sin fricción</h1>
         <p className="lede">
           Entra con tu cuenta de Real-Debrid para ver descargas, torrents y
@@ -111,15 +168,28 @@ export function LoginScreen() {
               setDevice(null);
             }}
           >
-            Token Real-Debrid
+            Token
           </button>
           <button
             type="button"
             className={mode === "device" ? "active" : ""}
             onClick={() => void startDevice()}
           >
-            Login dispositivo
+            Dispositivo
           </button>
+          {adminReady && (
+            <button
+              type="button"
+              className={mode === "admin" ? "active" : ""}
+              onClick={() => {
+                setMode("admin");
+                setDevice(null);
+                setAdminUnlocked(true);
+              }}
+            >
+              Admin
+            </button>
+          )}
         </div>
 
         {mode === "token" ? (
@@ -145,14 +215,11 @@ export function LoginScreen() {
               </a>
               . Se guarda solo en este navegador.
             </p>
-            <p className="hint callout">
-              Solo el token de Real-Debrid. Las carátulas van en el servidor.
-            </p>
             <button type="submit" className="btn primary" disabled={busy}>
               {busy ? "Entrando…" : "Entrar"}
             </button>
           </form>
-        ) : (
+        ) : mode === "device" ? (
           <div className="device-box">
             {device ? (
               <>
@@ -179,6 +246,37 @@ export function LoginScreen() {
               </button>
             )}
           </div>
+        ) : (
+          <form onSubmit={(e) => void onAdminSubmit(e)} className="stack">
+            <p className="hint callout">
+              Acceso propietario: el token de Real-Debrid ya está en el servidor.
+              Solo hace falta tu contraseña de admin.
+            </p>
+            <label>
+              Contraseña de administrador
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="Tu contraseña secreta"
+                autoComplete="current-password"
+                autoFocus
+              />
+            </label>
+            <button
+              type="submit"
+              className="btn primary"
+              disabled={busy || adminPassword.length < 1}
+            >
+              {busy ? "Entrando…" : "Entrar como admin"}
+            </button>
+          </form>
+        )}
+
+        {!adminReady && (
+          <p className="hint admin-hint">
+            Admin pendiente: configura RD_ADMIN_TOKEN en Vercel.
+          </p>
         )}
 
         {(localError || error) && (

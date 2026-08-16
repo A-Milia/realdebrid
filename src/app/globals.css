@@ -126,6 +126,12 @@ textarea {
   border-radius: 999px;
 }
 
+button.brand-tap {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
 .login-panel h1,
 .hero-line h1,
 .panel h2,
@@ -164,12 +170,23 @@ textarea {
 
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 0.35rem;
   margin: 1.2rem 0 1rem;
   padding: 0.28rem;
   background: var(--bg-soft);
   border-radius: 14px;
+}
+
+.admin-hint {
+  margin-top: 1rem;
+  font-size: 0.78rem;
+  opacity: 0.55;
+}
+
+.admin-hint code {
+  font-size: 0.75rem;
+  color: var(--accent);
 }
 
 .tabs button {
