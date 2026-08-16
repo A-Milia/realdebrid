@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { MediaItem } from "@/lib/media";
 
 type Props = {
@@ -56,6 +57,12 @@ export function MediaDetail({
   children?: ReactNode;
   title?: string;
 }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!onClose) return;
     const prev = document.body.style.overflow;
@@ -75,8 +82,9 @@ export function MediaDetail({
       className={`media-detail${onClose ? " media-detail-sheet" : ""}`}
       style={{
         backgroundImage: item.background
-          ? `linear-gradient(90deg, rgba(7,9,12,.94), rgba(7,9,12,.82)), url(${item.background})`
+          ? `linear-gradient(180deg, rgba(7,9,12,.88), rgba(7,9,12,.97)), url(${item.background})`
           : undefined,
+        backgroundColor: "#12161c",
       }}
     >
       <div className="media-detail-inner">
@@ -127,8 +135,9 @@ export function MediaDetail({
   );
 
   if (!onClose) return body;
+  if (!mounted) return null;
 
-  return (
+  return createPortal(
     <div className="detail-modal" role="dialog" aria-modal="true" aria-label={item.name}>
       <button
         type="button"
@@ -137,6 +146,7 @@ export function MediaDetail({
         onClick={onClose}
       />
       <div className="detail-modal-panel">{body}</div>
-    </div>
+    </div>,
+    document.body,
   );
 }

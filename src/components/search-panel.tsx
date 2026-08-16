@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   magnetFromHash,
   type MediaItem,
@@ -450,60 +451,68 @@ export function SearchPanel({ token, onAdded, onGoLibrary }: Props) {
         </MediaDetail>
       )}
 
-      {filePick && (
-        <div className="detail-modal file-pick-modal" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            className="detail-backdrop"
-            aria-label="Cerrar"
-            onClick={() => setFilePick(null)}
-          />
-          <div className="detail-modal-panel">
-            <div className="modal-card file-pick-card">
-              <h3>Elige archivos</h3>
-              <p className="hint">
-                Marca lo que quieres guardar. Luego aparecerá en tu colección.
-              </p>
-              <div className="file-list">
-                {filePick.files.map((f) => (
-                  <label key={f.id} className="file-row">
-                    <input
-                      type="checkbox"
-                      checked={picked.has(f.id)}
-                      onChange={() =>
-                        setPicked((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(f.id)) next.delete(f.id);
-                          else next.add(f.id);
-                          return next;
-                        })
-                      }
-                    />
-                    <span>{f.path}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="row gap">
-                <button
-                  type="button"
-                  className="btn secondary"
-                  onClick={() => setFilePick(null)}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={!picked.size || busy}
-                  onClick={() => void confirmFiles()}
-                >
-                  Guardar en colección
-                </button>
+      {filePick &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="detail-modal file-pick-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Elige archivos"
+          >
+            <button
+              type="button"
+              className="detail-backdrop"
+              aria-label="Cerrar"
+              onClick={() => setFilePick(null)}
+            />
+            <div className="detail-modal-panel">
+              <div className="modal-card file-pick-card">
+                <h3>Elige archivos</h3>
+                <p className="hint">
+                  Marca lo que quieres guardar. Luego aparecerá en tu colección.
+                </p>
+                <div className="file-list">
+                  {filePick.files.map((f) => (
+                    <label key={f.id} className="file-row">
+                      <input
+                        type="checkbox"
+                        checked={picked.has(f.id)}
+                        onChange={() =>
+                          setPicked((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(f.id)) next.delete(f.id);
+                            else next.add(f.id);
+                            return next;
+                          })
+                        }
+                      />
+                      <span>{f.path}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="row gap">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => setFilePick(null)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={!picked.size || busy}
+                    onClick={() => void confirmFiles()}
+                  >
+                    Guardar en colección
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </section>
   );
 }
