@@ -41,24 +41,31 @@ async function rdFetch<T>(
     cache: "no-store",
   });
 
-  if (!res.ok) {
-    let message = `Error ${res.status}`;
-    try {
-      const data = (await res.json()) as { error?: string; error_code?: number };
-      message = data.error || message;
-    } catch {
-      // ignore
-    }
-    throw new Error(message);
-  }
-
   const totalHeader = res.headers.get("X-Total-Count");
   const total = totalHeader ? Number(totalHeader) : null;
 
+  // 204 / vacío = OK (borrados, selectFiles, etc.)
   if (res.status === 204) return { data: undefined as T, total };
   const text = await res.text();
-  if (!text) return { data: undefined as T, total };
-  return { data: JSON.parse(text) as T, total };
+  if (!text) {
+    if (res.ok) return { data: undefined as T, total };
+    throw new Error(`Error ${res.status}`);
+  }
+
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    if (res.ok) return { data: undefined as T, total };
+    throw new Error(`Error ${res.status}`);
+  }
+
+  if (!res.ok) {
+    const err = parsed as { error?: string };
+    throw new Error(err.error || `Error ${res.status}`);
+  }
+
+  return { data: parsed as T, total };
 }
 
 async function collectPages<T>(
@@ -93,10 +100,6 @@ export const rd = {
   getUser: async (token: string) => (await rdFetch<RdUser>(token, "/user")).data,
 
   getDownloads: (token: string) => collectPages<RdDownload>(token, "/downloads"),
-
-  deleteDownload: async (token: string, id: string) => {
-    await rdFetch<void>(token, `/downloads/delete/${id}`, { method: "DELETE" });
-  },
 
   getTorrents: (token: string, filter?: "active") =>
     collectPages<RdTorrent>(
@@ -135,7 +138,28 @@ export const rd = {
   },
 
   deleteTorrent: async (token: string, id: string) => {
-    await rdFetch<void>(token, `/torrents/delete/${id}`, { method: "DELETE" });
+    try {
+      await rdFetch<void>(token, `/torrents/delete/${id}`, { method: "DELETE" });
+    } catch (err) {
+      // Si RD ya lo borró o responde raro, comprobar si sigue existiendo.
+      try {
+        await rdFetch<RdTorrent>(token, `/torrents/info/${id}`);
+      } catch {
+        return; // ya no existe → éxito
+      }
+      throw err;
+    }
+  },
+
+  deleteDownload: async (token: string, id: string) => {
+    try {
+      await rdFetch<void>(token, `/downloads/delete/${id}`, { method: "DELETE" });
+    } catch (err) {
+      if (err instanceof Error && /404|not.?found|Error 404/i.test(err.message)) {
+        return;
+      }
+      throw err;
+    }
   },
 
   unrestrict: async (token: string, link: string) =>

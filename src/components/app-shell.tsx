@@ -144,7 +144,7 @@ function IconHosts() {
 
 export function AppShell() {
   const { token, user, logout, refreshUser } = useAuth();
-  const [tab, setTab] = useState<Tab>("search");
+  const [tab, setTab] = useState<Tab>("overview");
   const [query, setQuery] = useState("");
   const [downloads, setDownloads] = useState<RdDownload[]>([]);
   const [torrents, setTorrents] = useState<RdTorrent[]>([]);
