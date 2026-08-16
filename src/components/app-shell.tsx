@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMediaMatches } from "@/hooks/use-media-matches";
-import { daysLeft, formatBytes } from "@/lib/format";
+import { daysLeft } from "@/lib/format";
 import type { MediaItem } from "@/lib/media";
 import { rd } from "@/lib/rd-client";
 import type { RdDownload, RdTorrent } from "@/lib/types";
@@ -164,9 +164,19 @@ export function AppShell() {
       ]);
       setDownloads(d ?? []);
       setTorrents(t ?? []);
-      await refreshUser();
+      try {
+        await refreshUser();
+      } catch {
+        // El listado ya cargó; no bloqueamos la UI por el perfil.
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al cargar");
+      const message = err instanceof Error ? err.message : "Error al cargar";
+      // Evita alarmar con códigos crudos si la acción principal ya funcionó.
+      if (!/^Error \d+$/i.test(message)) {
+        setError(message);
+      } else {
+        setError("No se pudo actualizar la lista. Pulsa actualizar.");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -212,25 +222,11 @@ export function AppShell() {
   }, [libraryFilenames, libraryMatches]);
 
   const stats = useMemo(() => {
-    const activeTorrents = torrents.filter(
-      (t) => t.status === "downloading" || t.status === "queued",
-    ).length;
-    const readyTorrents = torrents.filter(
-      (t) => t.status === "downloaded",
-    ).length;
-    const totalDownloadBytes = downloads.reduce(
-      (sum, d) => sum + (d.filesize || 0),
-      0,
-    );
     return {
       downloads: downloads.length,
       torrents: torrents.length,
-      activeTorrents,
-      readyTorrents,
-      totalDownloadBytes,
-      withCovers: overviewPosters.length,
     };
-  }, [downloads, torrents, overviewPosters.length]);
+  }, [downloads, torrents]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -244,7 +240,7 @@ export function AppShell() {
   }
 
   const titles: Record<Tab, string> = {
-    overview: "Resumen",
+    overview: "Inicio",
     search: "Buscar",
     library: "Colección",
     unrestrict: "Abrir enlace",
@@ -312,35 +308,69 @@ export function AppShell() {
         ) : (
           <>
             {tab === "overview" && (
-              <section className="overview">
+              <section className="overview home">
                 <div className="hero-line">
                   <h1>Hola, {user.username}</h1>
-                  <p>
-                    Biblioteca con carátulas. Busca y añade a Real-Debrid desde
-                    el móvil.
-                  </p>
+                  <p>Tu biblioteca Real-Debrid, lista para buscar y añadir.</p>
                 </div>
-                <div className="stat-grid">
-                  <article className="stat">
+
+                {!!overviewPosters.length && (
+                  <div className="home-hero-rail" aria-label="Destacados">
+                    {overviewPosters.slice(0, 6).map((media) => (
+                      <button
+                        key={`hero-${media.type}-${media.imdbId}`}
+                        type="button"
+                        className="home-hero-card"
+                        onClick={() => setDetail(media)}
+                        style={{
+                          backgroundImage: media.background || media.poster
+                            ? `linear-gradient(180deg, rgba(7,9,12,.15), rgba(7,9,12,.88)), url(${media.background || media.poster})`
+                            : undefined,
+                        }}
+                      >
+                        <span className="home-hero-play" aria-hidden>
+                          ▶
+                        </span>
+                        <span className="home-hero-meta">
+                          <strong>{media.name}</strong>
+                          <small>
+                            {media.type === "series" ? "Serie" : "Película"}
+                            {media.year ? ` · ${media.year}` : ""}
+                          </small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="home-section-head">
+                  <h2>Accesos</h2>
+                </div>
+                <div className="home-shortcuts">
+                  <button
+                    type="button"
+                    className="home-tile tile-search"
+                    onClick={() => go("search")}
+                  >
+                    <span>Buscar</span>
+                    <small>Películas y series</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="home-tile tile-active"
+                    onClick={() => go("library")}
+                  >
                     <span>En proceso</span>
-                    <strong>{stats.torrents}</strong>
-                    <small>{stats.readyTorrents} listos en cola</small>
-                  </article>
-                  <article className="stat">
-                    <span>Para ver</span>
-                    <strong>{stats.downloads}</strong>
-                    <small>{formatBytes(stats.totalDownloadBytes)}</small>
-                  </article>
-                  <article className="stat">
-                    <span>Activos</span>
-                    <strong>{stats.activeTorrents}</strong>
-                    <small>descargando ahora</small>
-                  </article>
-                  <article className="stat">
-                    <span>Carátulas</span>
-                    <strong>{stats.withCovers}</strong>
-                    <small>detectadas</small>
-                  </article>
+                    <small>{stats.torrents} torrents</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="home-tile tile-ready"
+                    onClick={() => go("library")}
+                  >
+                    <span>Listos</span>
+                    <small>{stats.downloads} archivos</small>
+                  </button>
                 </div>
 
                 {detail && (
@@ -349,9 +379,18 @@ export function AppShell() {
 
                 {!!overviewPosters.length && (
                   <>
-                    <h2 className="section-title">Tu biblioteca</h2>
-                    <div className="media-grid">
-                      {overviewPosters.map((media) => (
+                    <div className="home-section-head">
+                      <h2>Añadido recientemente</h2>
+                      <button
+                        type="button"
+                        className="text-link"
+                        onClick={() => go("library")}
+                      >
+                        Ver todo
+                      </button>
+                    </div>
+                    <div className="media-grid home-recent-grid">
+                      {overviewPosters.slice(0, 12).map((media) => (
                         <MediaCard
                           key={`${media.type}-${media.imdbId}`}
                           item={media}
@@ -361,23 +400,6 @@ export function AppShell() {
                     </div>
                   </>
                 )}
-
-                <div className="quick-actions">
-                  <button
-                    type="button"
-                    className="btn primary"
-                    onClick={() => go("search")}
-                  >
-                    Buscar y añadir
-                  </button>
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    onClick={() => go("library")}
-                  >
-                    Ver colección
-                  </button>
-                </div>
               </section>
             )}
 
@@ -418,7 +440,7 @@ export function AppShell() {
           onClick={() => go("overview")}
         >
           <IconHome active={tab === "overview"} />
-          Resumen
+          Inicio
         </button>
         <button
           type="button"

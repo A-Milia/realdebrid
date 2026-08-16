@@ -109,11 +109,11 @@ export function MediaDetail({
             {onClose && (
               <button
                 type="button"
-                className="btn ghost compact detail-close"
+                className="detail-close"
                 onClick={onClose}
                 aria-label="Cerrar"
               >
-                Cerrar
+                <span aria-hidden>×</span>
               </button>
             )}
           </div>

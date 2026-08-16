@@ -64,8 +64,8 @@ async function rdFetch<T>(
 async function collectPages<T>(
   token: string,
   basePath: string,
-  limit = 500,
-  maxPages = 20,
+  limit = 100,
+  maxPages = 50,
 ): Promise<T[]> {
   const first = await rdFetch<T[]>(
     token,
@@ -73,6 +73,7 @@ async function collectPages<T>(
   );
   const items = [...(first.data ?? [])];
   const total = first.total ?? items.length;
+  if (!Number.isFinite(total) || total <= items.length) return items;
   const pages = Math.min(maxPages, Math.ceil(total / limit));
   if (pages <= 1) return items;
 
@@ -81,7 +82,7 @@ async function collectPages<T>(
       rdFetch<T[]>(
         token,
         `${basePath}${basePath.includes("?") ? "&" : "?"}page=${i + 2}&limit=${limit}`,
-      ),
+      ).catch(() => ({ data: [] as T[], total: null })),
     ),
   );
   for (const page of rest) items.push(...(page.data ?? []));
@@ -103,8 +104,20 @@ export const rd = {
       filter ? `/torrents?filter=${filter}` : "/torrents",
     ),
 
-  getTorrent: async (token: string, id: string) =>
-    (await rdFetch<RdTorrent>(token, `/torrents/info/${id}`)).data,
+  getTorrent: async (token: string, id: string) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return (await rdFetch<RdTorrent>(token, `/torrents/info/${id}`)).data;
+      } catch (err) {
+        lastError = err;
+        await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("No se pudo leer el torrent");
+  },
 
   addMagnet: async (token: string, magnet: string) =>
     (

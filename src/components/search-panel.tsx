@@ -214,7 +214,15 @@ export function SearchPanel({ token, onAdded, onGoLibrary }: Props) {
     try {
       const magnet = magnetFromHash(t.infoHash, t.title);
       const created = await rd.addMagnet(token, magnet);
-      const info = await rd.getTorrent(token, created.id);
+      let info: Awaited<ReturnType<typeof rd.getTorrent>> | null = null;
+      try {
+        info = await rd.getTorrent(token, created.id);
+      } catch {
+        // El magnet ya está en RD; a veces /info falla un momento.
+        setMessage("Añadido a tu colección. Aparecerá en «En proceso».");
+        onAdded();
+        return;
+      }
       if (info.status === "waiting_files_selection" && info.files?.length) {
         setFilePick({
           id: info.id,
