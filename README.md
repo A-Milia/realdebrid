@@ -13,7 +13,13 @@ Real-Debrid **no tiene catálogo ni búsqueda nativa**. La búsqueda usa metadat
 - Login con API token o OAuth dispositivo
 - Descargas, torrents, unrestrict, hosts
 
+## Login vs TMDB
+
+- **Login** pide el **token de Real-Debrid** (`real-debrid.com/apitoken`), no TMDB.
+- **TMDB_API_KEY** solo va en Vercel (servidor) para mejorar carátulas. Nunca se pide en la UI.
+
 ## Variables de entorno
+
 
 Copia `.env.example` → `.env.local`:
 

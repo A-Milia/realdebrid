@@ -27,6 +27,7 @@ export function SearchPanel({ token, onAdded }: Props) {
     files: Array<{ id: number; path: string; bytes: number }>;
   } | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [tmdbEnabled, setTmdbEnabled] = useState<boolean | null>(null);
 
   async function search(e: React.FormEvent) {
     e.preventDefault();
@@ -44,9 +45,13 @@ export function SearchPanel({ token, onAdded }: Props) {
       const data = (await res.json()) as {
         results?: MediaItem[];
         error?: string;
+        providers?: { tmdbEnabled?: boolean };
       };
       if (!res.ok) throw new Error(data.error || "Error de búsqueda");
       setResults(data.results ?? []);
+      if (typeof data.providers?.tmdbEnabled === "boolean") {
+        setTmdbEnabled(data.providers.tmdbEnabled);
+      }
       if (!(data.results ?? []).length) setMessage("Sin resultados");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
@@ -141,8 +146,10 @@ export function SearchPanel({ token, onAdded }: Props) {
         <div>
           <h2>Buscar y añadir</h2>
           <p>
-            Busca películas o series, elige un torrent y se añade a tu Real-Debrid
-            (como en DMM, sin catálogo nativo de RD).
+            Busca películas o series, elige un torrent y se añade a tu Real-Debrid.
+            {tmdbEnabled === true && " TMDB activo en el servidor."}
+            {tmdbEnabled === false &&
+              " Carátulas vía Cinemeta (TMDB no configurado en Vercel)."}
           </p>
         </div>
       </div>

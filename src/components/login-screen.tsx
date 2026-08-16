@@ -98,8 +98,8 @@ export function LoginScreen() {
         <p className="brand-mark">RealDebrid</p>
         <h1>Tu catálogo, sin fricción</h1>
         <p className="lede">
-          Gestiona descargas, torrents y enlaces de tu cuenta Real-Debrid con una
-          interfaz rápida y moderna.
+          Entra con tu cuenta de Real-Debrid para ver descargas, torrents y
+          buscar contenido con carátulas.
         </p>
 
         <div className="tabs" role="tablist">
@@ -111,7 +111,7 @@ export function LoginScreen() {
               setDevice(null);
             }}
           >
-            API Token
+            Token Real-Debrid
           </button>
           <button
             type="button"
@@ -125,17 +125,17 @@ export function LoginScreen() {
         {mode === "token" ? (
           <form onSubmit={onSubmit} className="stack">
             <label>
-              Token de Real-Debrid
+              Token de tu cuenta Real-Debrid
               <input
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="Pega tu API token"
+                placeholder="Pega el token de real-debrid.com/apitoken"
                 autoComplete="off"
                 spellCheck={false}
               />
             </label>
             <p className="hint">
-              Consíguelo en{" "}
+              Cópialo en{" "}
               <a
                 href="https://real-debrid.com/apitoken"
                 target="_blank"
@@ -144,6 +144,10 @@ export function LoginScreen() {
                 real-debrid.com/apitoken
               </a>
               . Se guarda solo en este navegador.
+            </p>
+            <p className="hint callout">
+              Esto <strong>no</strong> es la API key de TMDB. TMDB (carátulas
+              extra) se configura solo en el servidor/Vercel, nunca aquí.
             </p>
             <button type="submit" className="btn primary" disabled={busy}>
               {busy ? "Entrando…" : "Entrar"}

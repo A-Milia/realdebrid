@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MediaItem } from "@/lib/media";
 
-const CACHE_KEY = "rd.mediaMatch.v1";
+const CACHE_KEY = "rd.mediaMatch.v2";
 
 type CacheMap = Record<string, MediaItem | null>;
 
@@ -17,16 +17,20 @@ function loadCache(): CacheMap {
 }
 
 function saveCache(map: CacheMap) {
-  localStorage.setItem(CACHE_KEY, JSON.stringify(map));
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(map));
+  } catch {
+    // quota — ignore
+  }
 }
 
-export function useMediaMatches(filenames: string[]) {
+export function useMediaMatches(filenames: string[], limit = 120) {
   const [matches, setMatches] = useState<CacheMap>({});
 
   const unique = useMemo(() => {
     const set = new Set(filenames.filter(Boolean));
-    return [...set].slice(0, 80);
-  }, [filenames]);
+    return [...set].slice(0, limit);
+  }, [filenames, limit]);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,8 +42,7 @@ export function useMediaMatches(filenames: string[]) {
 
     (async () => {
       const next = { ...cache };
-      // Limit concurrency
-      const chunk = 4;
+      const chunk = 5;
       for (let i = 0; i < missing.length; i += chunk) {
         const batch = missing.slice(i, i + chunk);
         await Promise.all(

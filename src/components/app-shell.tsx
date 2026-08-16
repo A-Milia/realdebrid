@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMediaMatches } from "@/hooks/use-media-matches";
 import { daysLeft, formatBytes, formatRelative } from "@/lib/format";
+import type { MediaItem } from "@/lib/media";
 import { rd } from "@/lib/rd-client";
 import type { RdDownload, RdTorrent } from "@/lib/types";
 import { useAuth } from "./auth-provider";
 import { DownloadsPanel } from "./downloads-panel";
 import { HostsPanel } from "./hosts-panel";
+import { MediaCard, MediaDetail } from "./media-card";
 import { SearchPanel } from "./search-panel";
 import { TorrentsPanel } from "./torrents-panel";
 import { UnrestrictPanel } from "./unrestrict-panel";
@@ -28,6 +31,7 @@ export function AppShell() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<MediaItem | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -54,7 +58,11 @@ export function AppShell() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "/" && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+      if (
+        e.key === "/" &&
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)
+      ) {
         e.preventDefault();
         document.getElementById("global-search")?.focus();
       }
@@ -63,20 +71,44 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const libraryFilenames = useMemo(
+    () => [
+      ...torrents.map((t) => t.filename),
+      ...downloads.map((d) => d.filename),
+    ],
+    [torrents, downloads],
+  );
+  const libraryMatches = useMediaMatches(libraryFilenames, 150);
+
+  const overviewPosters = useMemo(() => {
+    const map = new Map<string, MediaItem>();
+    for (const filename of libraryFilenames) {
+      const m = libraryMatches[filename];
+      if (m?.poster) map.set(`${m.type}:${m.imdbId}`, m);
+    }
+    return [...map.values()].slice(0, 18);
+  }, [libraryFilenames, libraryMatches]);
+
   const stats = useMemo(() => {
     const activeTorrents = torrents.filter(
       (t) => t.status === "downloading" || t.status === "queued",
     ).length;
-    const readyTorrents = torrents.filter((t) => t.status === "downloaded").length;
-    const totalDownloadBytes = downloads.reduce((sum, d) => sum + (d.filesize || 0), 0);
+    const readyTorrents = torrents.filter(
+      (t) => t.status === "downloaded",
+    ).length;
+    const totalDownloadBytes = downloads.reduce(
+      (sum, d) => sum + (d.filesize || 0),
+      0,
+    );
     return {
       downloads: downloads.length,
       torrents: torrents.length,
       activeTorrents,
       readyTorrents,
       totalDownloadBytes,
+      withCovers: overviewPosters.length,
     };
-  }, [downloads, torrents]);
+  }, [downloads, torrents, overviewPosters.length]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -117,13 +149,18 @@ export function AppShell() {
               {id === "downloads" && (
                 <span className="badge">{stats.downloads}</span>
               )}
-              {id === "torrents" && <span className="badge">{stats.torrents}</span>}
+              {id === "torrents" && (
+                <span className="badge">{stats.torrents}</span>
+              )}
             </button>
           ))}
         </nav>
 
         <div className="sidebar-user">
-          <div className="avatar" style={{ backgroundImage: `url(${user.avatar})` }} />
+          <div
+            className="avatar"
+            style={{ backgroundImage: `url(${user.avatar})` }}
+          />
           <div>
             <strong>{user.username}</strong>
             <small>
@@ -146,7 +183,7 @@ export function AppShell() {
               id="global-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar en tu catálogo…"
+              placeholder="Filtrar tu biblioteca…"
             />
           </div>
           <button
@@ -178,8 +215,8 @@ export function AppShell() {
                 <div className="hero-line">
                   <h1>Hola, {user.username}</h1>
                   <p>
-                    Tu biblioteca Real-Debrid en un solo sitio. Busca, copia y
-                    gestiona sin perder el ritmo.
+                    Tu biblioteca Real-Debrid con carátulas. Busca títulos nuevos
+                    o gestiona lo que ya tienes.
                   </p>
                 </div>
                 <div className="stat-grid">
@@ -199,20 +236,52 @@ export function AppShell() {
                     <small>en cola / descarga</small>
                   </article>
                   <article className="stat">
-                    <span>Premium</span>
-                    <strong>{daysLeft(user.expiration)}d</strong>
-                    <small>{formatRelative(user.expiration)}</small>
+                    <span>Con carátula</span>
+                    <strong>{stats.withCovers}</strong>
+                    <small>detectadas</small>
                   </article>
                 </div>
+
+                {detail && (
+                  <MediaDetail item={detail} onClose={() => setDetail(null)} />
+                )}
+
+                {!!overviewPosters.length && (
+                  <>
+                    <h2 className="section-title">Tu biblioteca</h2>
+                    <div className="media-grid">
+                      {overviewPosters.map((media) => (
+                        <MediaCard
+                          key={`${media.type}-${media.imdbId}`}
+                          item={media}
+                          onClick={() => setDetail(media)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
                 <div className="quick-actions">
-                  <button type="button" className="btn primary" onClick={() => setTab("search")}>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    onClick={() => setTab("search")}
+                  >
                     Buscar y añadir
                   </button>
-                  <button type="button" className="btn secondary" onClick={() => setTab("unrestrict")}>
-                    Desbloquear enlace
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => setTab("downloads")}
+                  >
+                    Ver descargas
                   </button>
-                  <button type="button" className="btn secondary" onClick={() => setTab("torrents")}>
-                    Añadir magnet
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => setTab("torrents")}
+                  >
+                    Ver torrents
                   </button>
                 </div>
               </section>
@@ -240,7 +309,10 @@ export function AppShell() {
               />
             )}
             {tab === "unrestrict" && (
-              <UnrestrictPanel token={token} onCreated={() => void onRefresh()} />
+              <UnrestrictPanel
+                token={token}
+                onCreated={() => void onRefresh()}
+              />
             )}
             {tab === "hosts" && <HostsPanel token={token} />}
           </>

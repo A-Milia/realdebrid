@@ -19,6 +19,14 @@ type CinemetaMeta = {
   genre?: string[];
 };
 
+function upgradePoster(poster?: string, imdbId?: string): string | undefined {
+  if (imdbId?.startsWith("tt")) {
+    return `https://images.metahub.space/poster/medium/${imdbId}/img`;
+  }
+  if (!poster) return undefined;
+  return poster.replace("/poster/small/", "/poster/medium/");
+}
+
 function mapMeta(m: CinemetaMeta, fallbackType?: MediaType): MediaItem | null {
   const imdbId = m.imdb_id || m.id;
   if (!imdbId || !m.name) return null;
@@ -28,8 +36,12 @@ function mapMeta(m: CinemetaMeta, fallbackType?: MediaType): MediaItem | null {
     imdbId,
     type: fallbackType ?? type,
     name: m.name,
-    poster: m.poster,
-    background: m.background,
+    poster: upgradePoster(m.poster, imdbId),
+    background:
+      m.background ||
+      (imdbId.startsWith("tt")
+        ? `https://images.metahub.space/background/medium/${imdbId}/img`
+        : undefined),
     year: m.releaseInfo || m.year,
     description: m.description,
     rating: m.imdbRating,
@@ -87,7 +99,21 @@ export async function getCinemetaMeta(
   return data.meta ? mapMeta(data.meta, type) : null;
 }
 
-/** Optional TMDB enrichment when TMDB_API_KEY is set. */
+async function tmdbExternalImdb(
+  kind: "movie" | "tv",
+  id: number,
+  apiKey: string,
+): Promise<string | null> {
+  const res = await fetch(
+    `https://api.themoviedb.org/3/${kind}/${id}/external_ids?api_key=${apiKey}`,
+    { next: { revalidate: 86400 } },
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as { imdb_id?: string | null };
+  return data.imdb_id || null;
+}
+
+/** TMDB search with IMDB resolution for Torrentio compatibility. */
 export async function searchTmdb(
   query: string,
   type: MediaType | "all" = "all",
@@ -124,27 +150,69 @@ export async function searchTmdb(
       }>;
     };
 
-    for (const r of data.results ?? []) {
-      const mediaType: MediaType = kind === "tv" ? "series" : "movie";
-      const year = (r.release_date || r.first_air_date || "").slice(0, 4);
-      out.push({
-        id: `tmdb:${kind}:${r.id}`,
-        imdbId: `tmdb:${kind}:${r.id}`,
-        type: mediaType,
-        name: r.title || r.name || "Sin título",
-        poster: r.poster_path
-          ? `https://image.tmdb.org/t/p/w342${r.poster_path}`
-          : undefined,
-        background: r.backdrop_path
-          ? `https://image.tmdb.org/t/p/w780${r.backdrop_path}`
-          : undefined,
-        year: year || undefined,
-        description: r.overview,
-        rating: r.vote_average ? r.vote_average.toFixed(1) : undefined,
-      });
-    }
+    const top = (data.results ?? []).slice(0, 10);
+    const withImdb = await Promise.all(
+      top.map(async (r) => {
+        const imdb = await tmdbExternalImdb(kind, r.id, key);
+        const mediaType: MediaType = kind === "tv" ? "series" : "movie";
+        const year = (r.release_date || r.first_air_date || "").slice(0, 4);
+        const imdbId = imdb || `tmdb:${kind}:${r.id}`;
+        return {
+          id: imdbId,
+          imdbId,
+          type: mediaType,
+          name: r.title || r.name || "Sin título",
+          poster: r.poster_path
+            ? `https://image.tmdb.org/t/p/w500${r.poster_path}`
+            : upgradePoster(undefined, imdb || undefined),
+          background: r.backdrop_path
+            ? `https://image.tmdb.org/t/p/w1280${r.backdrop_path}`
+            : undefined,
+          year: year || undefined,
+          description: r.overview,
+          rating: r.vote_average ? r.vote_average.toFixed(1) : undefined,
+        } satisfies MediaItem;
+      }),
+    );
+    out.push(...withImdb);
   }
   return out;
+}
+
+export async function matchTitleToMedia(
+  query: string,
+  preferred: MediaType,
+  year?: string,
+): Promise<MediaItem | null> {
+  let results = await searchCinemeta(query, preferred);
+  if (!results.length) {
+    results = await searchCinemeta(
+      query,
+      preferred === "movie" ? "series" : "movie",
+    );
+  }
+  if (!results.length) {
+    results = await searchTmdb(query, preferred);
+  }
+  if (!results.length) {
+    results = await searchTmdb(
+      query,
+      preferred === "movie" ? "series" : "movie",
+    );
+  }
+  if (!results.length) return null;
+
+  let best = results[0];
+  if (year) {
+    const withYear = results.find((r) => r.year?.includes(year));
+    if (withYear) best = withYear;
+  }
+
+  if (best.imdbId.startsWith("tt")) {
+    const full = await getCinemetaMeta(best.imdbId, best.type);
+    if (full) return full;
+  }
+  return best;
 }
 
 export async function fetchTorrentioStreams(
@@ -173,4 +241,8 @@ export async function fetchTorrentioStreams(
       behaviorHints?: { filename?: string };
     }>;
   };
+}
+
+export function isTmdbConfigured() {
+  return Boolean(process.env.TMDB_API_KEY);
 }
