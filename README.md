@@ -1,23 +1,30 @@
 # RealDebrid Manager
 
-Interfaz moderna y rápida para gestionar **tu** cuenta de [Real-Debrid](https://real-debrid.com): descargas, torrents, unrestrict y estado de hosts.
+Interfaz moderna para gestionar **tu** cuenta de [Real-Debrid](https://real-debrid.com): buscar películas/series, añadir torrents a RD, ver carátulas, descargas, unrestrict y hosts.
 
-## Qué NO es esto
+## Importante
 
-Real-Debrid **no tiene un catálogo global tipo Netflix**. Su API solo expone lo que hay en **tu** cuenta (descargas y torrents).
-
-[Debrid Media Manager (DMM)](https://github.com/debridmediamanager/debrid-media-manager) construye una experiencia de “biblioteca de cine/series” encima de debrid + metadatos + hashlists/scrapers. Esa app es potente pero pesada (MySQL, muchas integraciones, licencia AGPL). Este proyecto es una alternativa **ligera**, centrada en velocidad y UX para administrar Real-Debrid directamente, inspirada en las mejores ideas de biblioteca de DMM (filtros, ordenación, duplicados, limpieza de fallidos).
+Real-Debrid **no tiene catálogo ni búsqueda nativa**. La búsqueda usa metadatos públicos ([Cinemeta](https://v3-cinemeta.strem.io)) + torrents vía [Torrentio](https://torrentio.strem.fun), y luego envía el magnet a **tu** cuenta RD (mismo patrón que [DMM](https://github.com/debridmediamanager/debrid-media-manager), sin MySQL/Trakt).
 
 ## Funciones
 
-- Login con API token o flujo OAuth de dispositivo
-- Resumen de cuenta y premium
-- Descargas: búsqueda, copiar, abrir, borrado masivo
-- Torrents: magnet, selección de archivos, filtros por estado, ordenación, duplicados, limpiar fallidos, unrestrict
-- Unrestrict de enlaces de hoster
-- Estado de hosts
+- **Buscar y añadir**: título → carátula/info → lista de torrents → Añadir a RD (selección de archivos)
+- **Carátulas en biblioteca**: descarga/torrents se emparejan por nombre limpio con Cinemeta
+- Login con API token o OAuth dispositivo
+- Descargas, torrents, unrestrict, hosts
 
-El token se guarda **solo en tu navegador** (`localStorage`). Las peticiones pasan por un proxy Next.js (`/api/rd/*`).
+## Variables de entorno
+
+Copia `.env.example` → `.env.local`:
+
+```bash
+# Opcional. Sin esto ya hay posters vía Cinemeta.
+TMDB_API_KEY=tu_clave_tmdb
+```
+
+En Vercel: Project → Settings → Environment Variables → `TMDB_API_KEY`.
+
+Cómo obtener TMDB: https://www.themoviedb.org/settings/api (cuenta gratis → API Key).
 
 ## Desarrollo
 
@@ -25,12 +32,6 @@ El token se guarda **solo en tu navegador** (`localStorage`). Las peticiones pas
 npm install
 npm run dev
 ```
-
-Abre [http://localhost:3000](http://localhost:3000).
-
-## Producción (Vercel)
-
-Conecta el repo a Vercel. No hace falta base de datos ni variables de entorno obligatorias.
 
 ## Licencia
 

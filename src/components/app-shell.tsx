@@ -7,10 +7,17 @@ import type { RdDownload, RdTorrent } from "@/lib/types";
 import { useAuth } from "./auth-provider";
 import { DownloadsPanel } from "./downloads-panel";
 import { HostsPanel } from "./hosts-panel";
+import { SearchPanel } from "./search-panel";
 import { TorrentsPanel } from "./torrents-panel";
 import { UnrestrictPanel } from "./unrestrict-panel";
 
-export type Tab = "overview" | "downloads" | "torrents" | "unrestrict" | "hosts";
+export type Tab =
+  | "overview"
+  | "search"
+  | "downloads"
+  | "torrents"
+  | "unrestrict"
+  | "hosts";
 
 export function AppShell() {
   const { token, user, logout, refreshUser } = useAuth();
@@ -93,6 +100,7 @@ export function AppShell() {
           {(
             [
               ["overview", "Resumen"],
+              ["search", "Buscar"],
               ["downloads", "Descargas"],
               ["torrents", "Torrents"],
               ["unrestrict", "Unrestrict"],
@@ -197,17 +205,21 @@ export function AppShell() {
                   </article>
                 </div>
                 <div className="quick-actions">
-                  <button type="button" className="btn primary" onClick={() => setTab("unrestrict")}>
+                  <button type="button" className="btn primary" onClick={() => setTab("search")}>
+                    Buscar y añadir
+                  </button>
+                  <button type="button" className="btn secondary" onClick={() => setTab("unrestrict")}>
                     Desbloquear enlace
                   </button>
                   <button type="button" className="btn secondary" onClick={() => setTab("torrents")}>
                     Añadir magnet
                   </button>
-                  <button type="button" className="btn secondary" onClick={() => setTab("downloads")}>
-                    Ver descargas
-                  </button>
                 </div>
               </section>
+            )}
+
+            {tab === "search" && (
+              <SearchPanel token={token} onAdded={() => void onRefresh()} />
             )}
 
             {tab === "downloads" && (

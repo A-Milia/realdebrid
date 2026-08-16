@@ -1,14 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useMediaMatches } from "@/hooks/use-media-matches";
 import {
   formatBytes,
   formatDate,
   torrentStatusLabel,
 } from "@/lib/format";
+import type { MediaItem } from "@/lib/media";
 import { rd } from "@/lib/rd-client";
 import { cleanTitle } from "@/lib/title";
 import type { RdTorrent } from "@/lib/types";
+import { MediaCard, MediaDetail } from "./media-card";
 
 type Props = {
   token: string;
@@ -44,6 +47,7 @@ export function TorrentsPanel({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [groupDupes, setGroupDupes] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [detail, setDetail] = useState<MediaItem | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -94,6 +98,17 @@ export function TorrentsPanel({
 
     return list;
   }, [items, query, statusFilter, sortKey, sortDir, groupDupes]);
+
+  const matches = useMediaMatches(filtered.map((t) => t.filename));
+
+  const posterItems = useMemo(() => {
+    const map = new Map<string, MediaItem>();
+    for (const t of filtered) {
+      const m = matches[t.filename];
+      if (m?.poster) map.set(`${m.type}:${m.imdbId}`, m);
+    }
+    return [...map.values()].slice(0, 24);
+  }, [filtered, matches]);
 
   async function addMagnet(e: React.FormEvent) {
     e.preventDefault();
@@ -294,6 +309,21 @@ export function TorrentsPanel({
       {message && <p className="banner ok">{message}</p>}
       {error && <p className="banner error">{error}</p>}
 
+      {detail && <MediaDetail item={detail} onClose={() => setDetail(null)} />}
+
+      {!!posterItems.length && (
+        <div className="media-grid compact-grid">
+          {posterItems.map((media) => (
+            <MediaCard
+              key={`${media.type}-${media.imdbId}`}
+              item={media}
+              compact
+              onClick={() => setDetail(media)}
+            />
+          ))}
+        </div>
+      )}
+
       {selectedFiles && (
         <div className="modal-card">
           <h3>Selecciona archivos</h3>
@@ -365,7 +395,9 @@ export function TorrentsPanel({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((item) => (
+            {filtered.map((item) => {
+              const media = matches[item.filename];
+              return (
               <tr key={item.id} data-selected={selected.has(item.id)}>
                 <td className="check">
                   <input
@@ -382,8 +414,26 @@ export function TorrentsPanel({
                   />
                 </td>
                 <td>
-                  <div className="cell-title">{item.filename}</div>
-                  <div className="cell-sub mono">{item.hash.slice(0, 12)}…</div>
+                  <div className="row gap">
+                    <div
+                      className="thumb"
+                      style={{
+                        backgroundImage: media?.poster
+                          ? `url(${media.poster})`
+                          : undefined,
+                      }}
+                      onClick={() => media && setDetail(media)}
+                      role={media ? "button" : undefined}
+                    />
+                    <div>
+                      <div className="cell-title">
+                        {media?.name || item.filename}
+                      </div>
+                      <div className="cell-sub mono">
+                        {media ? item.filename : `${item.hash.slice(0, 12)}…`}
+                      </div>
+                    </div>
+                  </div>
                 </td>
                 <td>
                   <span className={`status status-${item.status}`}>
@@ -433,7 +483,8 @@ export function TorrentsPanel({
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {!filtered.length && (
               <tr>
                 <td colSpan={7} className="empty">
