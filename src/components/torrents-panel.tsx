@@ -12,6 +12,7 @@ import type { MediaItem } from "@/lib/media";
 import { rd } from "@/lib/rd-client";
 import { cleanTitle } from "@/lib/title";
 import type { RdTorrent } from "@/lib/types";
+import { titleSimilarity, parseRelease } from "@/lib/media";
 
 type Props = {
   token: string;
@@ -80,19 +81,23 @@ export function TorrentsPanel({
   const groups = useMemo(() => {
     const map = new Map<string, TorrentGroup>();
     for (const t of filtered) {
+      // Clave estable por nombre limpio (nunca mezclar títulos distintos)
+      const key = `file:${cleanTitle(t.filename) || t.id}`;
       const media = matches[t.filename];
-      const key = media?.imdbId
-        ? `${media.type}:${media.imdbId}`
-        : `file:${cleanTitle(t.filename) || t.id}`;
       const existing = map.get(key);
       if (existing) {
         existing.torrents.push(t);
-        if (!existing.media && media) existing.media = media;
       } else {
+        // Solo usar metadata si el nombre encaja de verdad
+        const parsed = parseRelease(t.filename);
+        const ok =
+          media &&
+          titleSimilarity(parsed.query || cleanTitle(t.filename), media.name) >=
+            0.34;
         map.set(key, {
           key,
-          title: media?.name || t.filename,
-          media: media ?? null,
+          title: ok ? media.name : parsed.query || t.filename,
+          media: ok ? media : null,
           torrents: [t],
         });
       }

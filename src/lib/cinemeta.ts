@@ -1,4 +1,5 @@
 import type { MediaItem, MediaType } from "@/lib/media";
+import { titleSimilarity } from "@/lib/media";
 import { cacheKey, cached } from "@/lib/server-cache";
 
 const CINEMETA = "https://v3-cinemeta.strem.io";
@@ -196,25 +197,39 @@ export async function matchTitleToMedia(
   year?: string,
 ): Promise<MediaItem | null> {
   return cached(
-    cacheKey(["match", preferred, year, query]),
+    cacheKey(["match-v3", preferred, year, query]),
     SEARCH_TTL,
     async () => {
-      let results = await searchCinemeta(query, preferred);
+      const q = query.trim();
+      if (q.length < 2) return null;
+
+      let results = await searchCinemeta(q, preferred);
       if (!results.length) {
         results = await searchCinemeta(
-          query,
+          q,
           preferred === "movie" ? "series" : "movie",
         );
       }
       if (!results.length) return null;
 
-      let best = results[0];
-      if (year) {
-        const withYear = results.find((r) => r.year?.includes(year));
-        if (withYear) best = withYear;
+      // Ranking por similitud de título (evita “Upscale…” por una palabra suelta)
+      const scored = results
+        .map((r) => ({
+          item: r,
+          score: titleSimilarity(q, r.name) + (year && r.year?.includes(year) ? 0.15 : 0),
+        }))
+        .sort((a, b) => b.score - a.score);
+
+      const best = scored[0];
+      // Umbral: al menos un token fuerte en común
+      if (!best || best.score < 0.34) return null;
+
+      // Catalog search a veces no trae description → meta completa
+      if (!best.item.description && best.item.imdbId.startsWith("tt")) {
+        const full = await getCinemetaMeta(best.item.imdbId, best.item.type);
+        if (full) return { ...best.item, ...full, description: full.description || best.item.description };
       }
-      // Skip extra meta round-trip — catalog search already has posters via metahub
-      return best;
+      return best.item;
     },
   );
 }

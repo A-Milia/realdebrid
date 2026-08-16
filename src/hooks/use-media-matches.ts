@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MediaItem } from "@/lib/media";
 
-const CACHE_KEY = "rd.mediaMatch.v2";
+const CACHE_KEY = "rd.mediaMatch.v4";
 
 type CacheMap = Record<string, MediaItem | null>;
 
