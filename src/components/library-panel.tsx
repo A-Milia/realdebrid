@@ -28,29 +28,15 @@ export function LibraryPanel({
 }: Props) {
   const [section, setSection] = useState<"active" | "ready">(initialSection);
 
-  const activeCount = torrents.length;
-  const readyCount = downloads.length;
-
   return (
     <section className="panel library-panel">
       <div className="panel-head">
         <div>
           <h2>Colección</h2>
           <p>
-            Todo lo que añades desde Buscar llega aquí. Primero se prepara y
-            después queda listo para abrir o copiar el enlace.
+            En proceso = descargando. Listos = ya puedes abrir o copiar el
+            enlace.
           </p>
-        </div>
-      </div>
-
-      <div className="library-explain">
-        <div>
-          <strong>En proceso</strong>
-          <span>Torrents que Real-Debrid está descargando o preparando.</span>
-        </div>
-        <div>
-          <strong>Listos</strong>
-          <span>Archivos ya disponibles para copiar el enlace o abrirlos.</span>
         </div>
       </div>
 
@@ -62,7 +48,7 @@ export function LibraryPanel({
           className={section === "active" ? "chip active" : "chip"}
           onClick={() => setSection("active")}
         >
-          En proceso ({activeCount})
+          En proceso ({torrents.length})
         </button>
         <button
           type="button"
@@ -71,7 +57,7 @@ export function LibraryPanel({
           className={section === "ready" ? "chip active" : "chip"}
           onClick={() => setSection("ready")}
         >
-          Listos ({readyCount})
+          Listos ({downloads.length})
         </button>
       </div>
 

@@ -1,17 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMediaMatches } from "@/hooks/use-media-matches";
 import {
   formatBytes,
   formatDate,
   torrentStatusLabel,
 } from "@/lib/format";
-import type { MediaItem } from "@/lib/media";
 import { rd } from "@/lib/rd-client";
-import { cleanTitle } from "@/lib/title";
 import type { RdTorrent } from "@/lib/types";
-import { MediaCard, MediaDetail } from "./media-card";
 
 type Props = {
   token: string;
@@ -22,7 +20,6 @@ type Props = {
   embedded?: boolean;
 };
 
-type SortKey = "added" | "filename" | "bytes" | "progress" | "status";
 type StatusFilter =
   | "all"
   | "downloaded"
@@ -39,17 +36,13 @@ export function TorrentsPanel({
   embedded = false,
 }: Props) {
   const [magnet, setMagnet] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<RdTorrent | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("added");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [groupDupes, setGroupDupes] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [detail, setDetail] = useState<MediaItem | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -77,40 +70,12 @@ export function TorrentsPanel({
       }
     });
 
-    list = [...list].sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "filename") cmp = a.filename.localeCompare(b.filename);
-      else if (sortKey === "bytes") cmp = a.bytes - b.bytes;
-      else if (sortKey === "progress") cmp = a.progress - b.progress;
-      else if (sortKey === "status") cmp = a.status.localeCompare(b.status);
-      else cmp = new Date(a.added).getTime() - new Date(b.added).getTime();
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-
-    if (groupDupes) {
-      const seen = new Set<string>();
-      const dupes: RdTorrent[] = [];
-      for (const t of list) {
-        const key = cleanTitle(t.filename);
-        if (seen.has(key)) dupes.push(t);
-        else seen.add(key);
-      }
-      return dupes;
-    }
-
-    return list;
-  }, [items, query, statusFilter, sortKey, sortDir, groupDupes]);
+    return [...list].sort(
+      (a, b) => new Date(b.added).getTime() - new Date(a.added).getTime(),
+    );
+  }, [items, query, statusFilter]);
 
   const matches = useMediaMatches(filtered.map((t) => t.filename));
-
-  const posterItems = useMemo(() => {
-    const map = new Map<string, MediaItem>();
-    for (const t of filtered) {
-      const m = matches[t.filename];
-      if (m?.poster) map.set(`${m.type}:${m.imdbId}`, m);
-    }
-    return [...map.values()].slice(0, 24);
-  }, [filtered, matches]);
 
   async function addMagnet(e: React.FormEvent) {
     e.preventDefault();
@@ -121,7 +86,15 @@ export function TorrentsPanel({
     setMessage(null);
     try {
       const created = await rd.addMagnet(token, value);
-      const info = await rd.getTorrent(token, created.id);
+      let info: RdTorrent | null = null;
+      try {
+        info = await rd.getTorrent(token, created.id);
+      } catch {
+        setMessage("Añadido a En proceso");
+        setMagnet("");
+        onRefresh();
+        return;
+      }
       if (info.status === "waiting_files_selection") {
         setSelectedFiles(info);
         setPicked(new Set((info.files ?? []).map((f) => f.id)));
@@ -147,7 +120,7 @@ export function TorrentsPanel({
         [...picked].sort((a, b) => a - b).join(","),
       );
       setSelectedFiles(null);
-      setMessage("Archivos guardados. Cuando termine, pásalo a Listos con «Preparar enlace».");
+      setMessage("Archivos guardados. Cuando termine, usa «Preparar enlace».");
       onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al seleccionar");
@@ -157,30 +130,18 @@ export function TorrentsPanel({
   }
 
   async function removeOne(id: string) {
-    setBusy(true);
+    setBusyId(id);
+    setError(null);
+    const previous = items;
+    onChange(items.filter((t) => t.id !== id));
     try {
       await rd.deleteTorrent(token, id);
-      onChange(items.filter((t) => t.id !== id));
-      setSelected((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+      setMessage("Eliminado");
+    } catch (err) {
+      onChange(previous);
+      setError(err instanceof Error ? err.message : "No se pudo borrar");
     } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeSelected() {
-    if (!selected.size) return;
-    setBusy(true);
-    try {
-      await Promise.all([...selected].map((id) => rd.deleteTorrent(token, id)));
-      onChange(items.filter((t) => !selected.has(t.id)));
-      setSelected(new Set());
-      setMessage(`Eliminados ${selected.size}`);
-    } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
@@ -193,11 +154,15 @@ export function TorrentsPanel({
       return;
     }
     setBusy(true);
+    const ids = new Set(failed.map((t) => t.id));
+    const previous = items;
+    onChange(items.filter((t) => !ids.has(t.id)));
     try {
       await Promise.all(failed.map((t) => rd.deleteTorrent(token, t.id)));
-      const ids = new Set(failed.map((t) => t.id));
-      onChange(items.filter((t) => !ids.has(t.id)));
       setMessage(`Limpiados ${failed.length} fallidos`);
+    } catch (err) {
+      onChange(previous);
+      setError(err instanceof Error ? err.message : "No se pudo limpiar");
     } finally {
       setBusy(false);
     }
@@ -205,18 +170,20 @@ export function TorrentsPanel({
 
   async function unrestrictLinks(torrent: RdTorrent) {
     if (!torrent.links?.length) return;
-    setBusy(true);
+    setBusyId(torrent.id);
     setError(null);
     try {
       await Promise.all(torrent.links.map((link) => rd.unrestrict(token, link)));
       setMessage(
-        `Listo: ${torrent.links.length} enlace(s) preparados. Mira la pestaña Listos.`,
+        `Listo: ${torrent.links.length} enlace(s) en la pestaña Listos.`,
       );
       onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo preparar el enlace");
+      setError(
+        err instanceof Error ? err.message : "No se pudo preparar el enlace",
+      );
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
@@ -229,11 +196,16 @@ export function TorrentsPanel({
     });
   }
 
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
-      setSortKey(key);
-      setSortDir(key === "filename" || key === "status" ? "asc" : "desc");
+  async function openFilePicker(id: string) {
+    setBusyId(id);
+    try {
+      const info = await rd.getTorrent(token, id);
+      setSelectedFiles(info);
+      setPicked(new Set((info.files ?? []).map((f) => f.id)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudieron cargar archivos");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -242,38 +214,24 @@ export function TorrentsPanel({
       <div className="panel-head">
         <div>
           {!embedded && <h2>En proceso</h2>}
-          <p>
-            {embedded
-              ? `${filtered.length} torrents que Real-Debrid está preparando`
-              : `${filtered.length} de ${items.length}`}
-          </p>
+          <p>{filtered.length} de {items.length}</p>
         </div>
-        <div className="row gap wrap">
-          <button
-            type="button"
-            className="btn secondary compact"
-            disabled={busy}
-            onClick={() => void deleteFailed()}
-          >
-            Limpiar fallidos
-          </button>
-          <button
-            type="button"
-            className="btn danger compact"
-            disabled={!selected.size || busy}
-            onClick={() => void removeSelected()}
-          >
-            Borrar ({selected.size})
-          </button>
-        </div>
+        <button
+          type="button"
+          className="btn secondary compact"
+          disabled={busy}
+          onClick={() => void deleteFailed()}
+        >
+          Limpiar fallidos
+        </button>
       </div>
 
       <div className="toolbar">
         {(
           [
             ["all", "Todos"],
-            ["downloaded", "Listos"],
             ["active", "Activos"],
+            ["downloaded", "Completados"],
             ["waiting", "Elegir archivos"],
             ["failed", "Fallidos"],
           ] as const
@@ -287,13 +245,6 @@ export function TorrentsPanel({
             {label}
           </button>
         ))}
-        <button
-          type="button"
-          className={groupDupes ? "chip active" : "chip"}
-          onClick={() => setGroupDupes((v) => !v)}
-        >
-          Solo duplicados
-        </button>
       </div>
 
       <form className="magnet-form" onSubmit={(e) => void addMagnet(e)}>
@@ -315,166 +266,59 @@ export function TorrentsPanel({
       {message && <p className="banner ok">{message}</p>}
       {error && <p className="banner error">{error}</p>}
 
-      {detail && <MediaDetail item={detail} onClose={() => setDetail(null)} />}
-
-      {!!posterItems.length && (
-        <div className="media-grid compact-grid">
-          {posterItems.map((media) => (
-            <MediaCard
-              key={`${media.type}-${media.imdbId}`}
-              item={media}
-              compact
-              onClick={() => setDetail(media)}
-            />
-          ))}
-        </div>
-      )}
-
-      {selectedFiles && (
-        <div className="modal-card">
-          <h3>Selecciona archivos</h3>
-          <p className="hint">{selectedFiles.filename}</p>
-          <div className="file-list">
-            {(selectedFiles.files ?? []).map((file) => (
-              <label key={file.id} className="file-row">
-                <input
-                  type="checkbox"
-                  checked={picked.has(file.id)}
-                  onChange={() => toggleFile(file.id)}
-                />
-                <span>{file.path}</span>
-                <em>{formatBytes(file.bytes)}</em>
-              </label>
-            ))}
-          </div>
-          <div className="row gap">
-            <button
-              type="button"
-              className="btn secondary"
-              onClick={() => setSelectedFiles(null)}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn primary"
-              disabled={busy || !picked.size}
-              onClick={() => void confirmFiles()}
-            >
-              Confirmar
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th className="check" />
-              <th>
-                <button type="button" className="th-btn" onClick={() => toggleSort("filename")}>
-                  Torrent
-                </button>
-              </th>
-              <th>
-                <button type="button" className="th-btn" onClick={() => toggleSort("status")}>
-                  Estado
-                </button>
-              </th>
-              <th>
-                <button type="button" className="th-btn" onClick={() => toggleSort("progress")}>
-                  Progreso
-                </button>
-              </th>
-              <th>
-                <button type="button" className="th-btn" onClick={() => toggleSort("bytes")}>
-                  Tamaño
-                </button>
-              </th>
-              <th>
-                <button type="button" className="th-btn" onClick={() => toggleSort("added")}>
-                  Añadido
-                </button>
-              </th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((item) => {
-              const media = matches[item.filename];
-              return (
-              <tr key={item.id} data-selected={selected.has(item.id)}>
-                <td className="check">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(item.id)}
-                    onChange={() =>
-                      setSelected((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(item.id)) next.delete(item.id);
-                        else next.add(item.id);
-                        return next;
-                      })
-                    }
-                  />
-                </td>
-                <td>
-                  <div className="row gap">
-                    <div
-                      className="thumb"
-                      style={{
-                        backgroundImage: media?.poster
-                          ? `url(${media.poster})`
-                          : undefined,
-                      }}
-                      onClick={() => media && setDetail(media)}
-                      role={media ? "button" : undefined}
-                    />
-                    <div>
-                      <div className="cell-title">
-                        {media?.name || item.filename}
-                      </div>
-                      <div className="cell-sub mono">
-                        {media ? item.filename : `${item.hash.slice(0, 12)}…`}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td>
+      <div className="item-stack">
+        {filtered.map((item) => {
+          const media = matches[item.filename];
+          const rowBusy = busyId === item.id;
+          return (
+            <article key={item.id} className="item-card">
+              <div
+                className="item-poster"
+                style={{
+                  backgroundImage: media?.poster
+                    ? `url(${media.poster})`
+                    : undefined,
+                }}
+              />
+              <div className="item-body">
+                <div className="item-title-row">
+                  <strong className="item-title">
+                    {media?.name || item.filename}
+                  </strong>
                   <span className={`status status-${item.status}`}>
                     {torrentStatusLabel(item.status)}
                   </span>
-                </td>
-                <td>
-                  <div className="progress">
-                    <div style={{ width: `${Math.min(100, item.progress)}%` }} />
-                  </div>
-                  <small>{Math.round(item.progress)}%</small>
-                </td>
-                <td>{formatBytes(item.bytes)}</td>
-                <td>{formatDate(item.added)}</td>
-                <td className="actions">
+                </div>
+                {media?.name && (
+                  <p className="item-sub">{item.filename}</p>
+                )}
+                <div className="item-meta">
+                  <span>{formatBytes(item.bytes)}</span>
+                  <span>{formatDate(item.added)}</span>
+                </div>
+                <div className="progress item-progress">
+                  <div style={{ width: `${Math.min(100, item.progress)}%` }} />
+                </div>
+                <small className="item-progress-label">
+                  {Math.round(item.progress)}%
+                </small>
+                <div className="item-actions">
                   {item.status === "downloaded" && !!item.links?.length && (
                     <button
                       type="button"
                       className="btn primary compact"
-                      disabled={busy}
+                      disabled={!!busyId}
                       onClick={() => void unrestrictLinks(item)}
                     >
-                      Preparar enlace
+                      {rowBusy ? "…" : "Preparar enlace"}
                     </button>
                   )}
                   {item.status === "waiting_files_selection" && (
                     <button
                       type="button"
                       className="btn secondary compact"
-                      onClick={() => {
-                        void rd.getTorrent(token, item.id).then((info) => {
-                          setSelectedFiles(info);
-                          setPicked(new Set((info.files ?? []).map((f) => f.id)));
-                        });
-                      }}
+                      disabled={!!busyId}
+                      onClick={() => void openFilePicker(item.id)}
                     >
                       Elegir archivos
                     </button>
@@ -482,25 +326,75 @@ export function TorrentsPanel({
                   <button
                     type="button"
                     className="btn ghost compact danger-text"
-                    disabled={busy}
+                    disabled={!!busyId}
                     onClick={() => void removeOne(item.id)}
                   >
-                    Borrar
+                    {rowBusy ? "…" : "Borrar"}
                   </button>
-                </td>
-              </tr>
-              );
-            })}
-            {!filtered.length && (
-              <tr>
-                <td colSpan={7} className="empty">
-                  No hay nada en proceso que coincida.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+        {!filtered.length && (
+          <p className="hint">No hay nada en proceso que coincida.</p>
+        )}
       </div>
+
+      {selectedFiles &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="detail-modal file-pick-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Elige archivos"
+          >
+            <button
+              type="button"
+              className="detail-backdrop"
+              aria-label="Cerrar"
+              onClick={() => setSelectedFiles(null)}
+            />
+            <div className="detail-modal-panel">
+              <div className="modal-card file-pick-card">
+                <h3>Elige archivos</h3>
+                <p className="hint">{selectedFiles.filename}</p>
+                <div className="file-list">
+                  {(selectedFiles.files ?? []).map((file) => (
+                    <label key={file.id} className="file-row">
+                      <input
+                        type="checkbox"
+                        checked={picked.has(file.id)}
+                        onChange={() => toggleFile(file.id)}
+                      />
+                      <span>{file.path}</span>
+                      <em>{formatBytes(file.bytes)}</em>
+                    </label>
+                  ))}
+                </div>
+                <div className="row gap">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => setSelectedFiles(null)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={busy || !picked.size}
+                    onClick={() => void confirmFiles()}
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </section>
   );
 }
