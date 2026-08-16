@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { magnetFromHash, type MediaItem, type TorrentCandidate } from "@/lib/media";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  magnetFromHash,
+  type MediaItem,
+  type TorrentCandidate,
+} from "@/lib/media";
 import { rd } from "@/lib/rd-client";
 import { MediaCard, MediaDetail } from "./media-card";
 
@@ -9,6 +13,45 @@ type Props = {
   token: string;
   onAdded: () => void;
 };
+
+const CLIENT_CACHE = "rd.search.v1";
+
+function readClientCache(key: string): MediaItem[] | null {
+  try {
+    const raw = sessionStorage.getItem(CLIENT_CACHE);
+    if (!raw) return null;
+    const map = JSON.parse(raw) as Record<
+      string,
+      { at: number; results: MediaItem[] }
+    >;
+    const hit = map[key];
+    if (!hit) return null;
+    if (Date.now() - hit.at > 30 * 60 * 1000) return null;
+    return hit.results;
+  } catch {
+    return null;
+  }
+}
+
+function writeClientCache(key: string, results: MediaItem[]) {
+  try {
+    const raw = sessionStorage.getItem(CLIENT_CACHE);
+    const map = raw
+      ? (JSON.parse(raw) as Record<string, { at: number; results: MediaItem[] }>)
+      : {};
+    map[key] = { at: Date.now(), results };
+    const keys = Object.keys(map);
+    if (keys.length > 40) {
+      keys
+        .sort((a, b) => map[a].at - map[b].at)
+        .slice(0, keys.length - 40)
+        .forEach((k) => delete map[k]);
+    }
+    sessionStorage.setItem(CLIENT_CACHE, JSON.stringify(map));
+  } catch {
+    // ignore quota
+  }
+}
 
 export function SearchPanel({ token, onAdded }: Props) {
   const [query, setQuery] = useState("");
@@ -28,43 +71,109 @@ export function SearchPanel({ token, onAdded }: Props) {
   } | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [tmdbEnabled, setTmdbEnabled] = useState<boolean | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
 
-  async function search(e: React.FormEvent) {
-    e.preventDefault();
+  const abortSearch = useRef<AbortController | null>(null);
+  const abortTorrents = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reqId = useRef(0);
+
+  const runSearch = useCallback(
+    async (raw: string, mediaType: typeof kind, fromSubmit = false) => {
+      const q = raw.trim();
+      if (q.length < 2) {
+        setResults([]);
+        setBusy(false);
+        return;
+      }
+
+      const cacheKey = `${mediaType}:${q.toLowerCase()}`;
+      const cached = readClientCache(cacheKey);
+      if (cached?.length) {
+        setResults(cached);
+        setBusy(false);
+        setElapsedMs(0);
+      } else {
+        setBusy(true);
+      }
+
+      abortSearch.current?.abort();
+      const ctrl = new AbortController();
+      abortSearch.current = ctrl;
+      const id = ++reqId.current;
+      const started = performance.now();
+      setError(null);
+      if (fromSubmit) setMessage(null);
+
+      try {
+        const res = await fetch(
+          `/api/search/media?q=${encodeURIComponent(q)}&type=${mediaType}`,
+          { signal: ctrl.signal },
+        );
+        const data = (await res.json()) as {
+          results?: MediaItem[];
+          error?: string;
+          providers?: { tmdbEnabled?: boolean };
+        };
+        if (id !== reqId.current) return;
+        if (!res.ok) throw new Error(data.error || "Error de búsqueda");
+        const next = data.results ?? [];
+        setResults(next);
+        writeClientCache(cacheKey, next);
+        setElapsedMs(Math.round(performance.now() - started));
+        if (typeof data.providers?.tmdbEnabled === "boolean") {
+          setTmdbEnabled(data.providers.tmdbEnabled);
+        }
+        if (!next.length) setMessage("Sin resultados");
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        if (id !== reqId.current) return;
+        setError(err instanceof Error ? err.message : "Error");
+      } finally {
+        if (id === reqId.current) setBusy(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = query.trim();
-    if (q.length < 2) return;
-    setBusy(true);
-    setError(null);
-    setMessage(null);
+    if (q.length < 2) {
+      setResults([]);
+      setElapsedMs(null);
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      void runSearch(q, kind);
+    }, 280);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, kind, runSearch]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     setSelected(null);
     setTorrents([]);
-    try {
-      const res = await fetch(
-        `/api/search/media?q=${encodeURIComponent(q)}&type=${kind}`,
-      );
-      const data = (await res.json()) as {
-        results?: MediaItem[];
-        error?: string;
-        providers?: { tmdbEnabled?: boolean };
-      };
-      if (!res.ok) throw new Error(data.error || "Error de búsqueda");
-      setResults(data.results ?? []);
-      if (typeof data.providers?.tmdbEnabled === "boolean") {
-        setTmdbEnabled(data.providers.tmdbEnabled);
-      }
-      if (!(data.results ?? []).length) setMessage("Sin resultados");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
-    } finally {
-      setBusy(false);
-    }
+    await runSearch(query, kind, true);
   }
 
   async function loadTorrents(item: MediaItem, s = season, ep = episode) {
+    if (!item.imdbId.startsWith("tt")) {
+      setError("Este resultado no tiene IMDB; elige otra carátula.");
+      return;
+    }
     setSelected(item);
     setLoadingTorrents(true);
     setError(null);
+    setMessage(null);
     setTorrents([]);
+    abortTorrents.current?.abort();
+    const ctrl = new AbortController();
+    abortTorrents.current = ctrl;
+
     try {
       const params = new URLSearchParams({
         imdbId: item.imdbId,
@@ -74,7 +183,9 @@ export function SearchPanel({ token, onAdded }: Props) {
         params.set("season", String(s));
         params.set("episode", String(ep));
       }
-      const res = await fetch(`/api/search/torrents?${params}`);
+      const res = await fetch(`/api/search/torrents?${params}`, {
+        signal: ctrl.signal,
+      });
       const data = (await res.json()) as {
         torrents?: TorrentCandidate[];
         error?: string;
@@ -85,6 +196,7 @@ export function SearchPanel({ token, onAdded }: Props) {
         setMessage("No hay torrents para este título");
       }
     } catch (err) {
+      if (ctrl.signal.aborted) return;
       setError(err instanceof Error ? err.message : "Error");
     } finally {
       setLoadingTorrents(false);
@@ -146,15 +258,15 @@ export function SearchPanel({ token, onAdded }: Props) {
         <div>
           <h2>Buscar y añadir</h2>
           <p>
-            Busca películas o series, elige un torrent y se añade a tu Real-Debrid.
-            {tmdbEnabled === true && " TMDB activo en el servidor."}
-            {tmdbEnabled === false &&
-              " Carátulas vía Cinemeta (TMDB no configurado en Vercel)."}
+            Escribe y busca al instante. Resultados listos para Real-Debrid.
+            {elapsedMs != null && elapsedMs > 0 && <> · {elapsedMs} ms</>}
+            {elapsedMs === 0 && <> · caché</>}
+            {tmdbEnabled === true && <> · TMDB</>}
           </p>
         </div>
       </div>
 
-      <form className="search-form" onSubmit={(e) => void search(e)}>
+      <form className="search-form" onSubmit={(e) => void onSubmit(e)}>
         <div className="toolbar">
           {(
             [
@@ -177,11 +289,18 @@ export function SearchPanel({ token, onAdded }: Props) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Ej. Matrix, Breaking Bad…"
+            placeholder="Empieza a escribir…"
             autoFocus
+            autoComplete="off"
+            enterKeyHint="search"
+            inputMode="search"
           />
-          <button type="submit" className="btn primary" disabled={busy || query.trim().length < 2}>
-            {busy ? "Buscando…" : "Buscar"}
+          <button
+            type="submit"
+            className="btn primary"
+            disabled={busy || query.trim().length < 2}
+          >
+            {busy ? "…" : "Buscar"}
           </button>
         </div>
       </form>
@@ -189,13 +308,23 @@ export function SearchPanel({ token, onAdded }: Props) {
       {error && <p className="banner error">{error}</p>}
       {message && <p className="banner ok">{message}</p>}
 
+      {busy && !results.length && (
+        <div className="media-grid">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="skeleton-card" style={{ minHeight: 220 }} />
+          ))}
+        </div>
+      )}
+
       {!!results.length && (
         <div className="media-grid">
           {results.map((item) => (
             <MediaCard
               key={`${item.type}-${item.imdbId}`}
               item={item}
-              selected={selected?.imdbId === item.imdbId && selected.type === item.type}
+              selected={
+                selected?.imdbId === item.imdbId && selected.type === item.type
+              }
               onClick={() => void loadTorrents(item)}
             />
           ))}
@@ -235,7 +364,15 @@ export function SearchPanel({ token, onAdded }: Props) {
           )}
 
           {loadingTorrents ? (
-            <p className="hint">Cargando torrents…</p>
+            <div className="torrent-list">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="skeleton-card"
+                  style={{ minHeight: 56, borderRadius: 14 }}
+                />
+              ))}
+            </div>
           ) : (
             <div className="torrent-list">
               {torrents.map((t) => (
@@ -243,7 +380,12 @@ export function SearchPanel({ token, onAdded }: Props) {
                   <div>
                     <strong>{t.title}</strong>
                     <small>
-                      {[t.quality, t.size, t.seeds ? `${t.seeds} seeds` : null, t.source]
+                      {[
+                        t.quality,
+                        t.size,
+                        t.seeds ? `${t.seeds} seeds` : null,
+                        t.source,
+                      ]
                         .filter(Boolean)
                         .join(" · ")}
                     </small>
@@ -254,7 +396,7 @@ export function SearchPanel({ token, onAdded }: Props) {
                     disabled={busy}
                     onClick={() => void addTorrent(t)}
                   >
-                    Añadir a RD
+                    Añadir
                   </button>
                 </div>
               ))}
@@ -289,7 +431,11 @@ export function SearchPanel({ token, onAdded }: Props) {
             ))}
           </div>
           <div className="row gap">
-            <button type="button" className="btn secondary" onClick={() => setFilePick(null)}>
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => setFilePick(null)}
+            >
               Cancelar
             </button>
             <button

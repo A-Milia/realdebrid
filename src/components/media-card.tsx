@@ -18,13 +18,19 @@ export function MediaCard({ item, selected, onClick, footer, compact }: Props) {
       className={`media-card ${selected ? "selected" : ""} ${compact ? "compact" : ""}`}
       onClick={onClick}
     >
-      <div
-        className="poster"
-        style={{
-          backgroundImage: item.poster ? `url(${item.poster})` : undefined,
-        }}
-      >
-        {!item.poster && <span>Sin póster</span>}
+      <div className="poster">
+        {item.poster ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.poster}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <span>Sin póster</span>
+        )}
         {item.rating && <em className="rating">{item.rating}</em>}
       </div>
       <div className="meta">
@@ -53,22 +59,32 @@ export function MediaDetail({
       className="media-detail"
       style={{
         backgroundImage: item.background
-          ? `linear-gradient(90deg, rgba(16,24,32,.92), rgba(16,24,32,.78)), url(${item.background})`
+          ? `linear-gradient(90deg, rgba(7,9,12,.92), rgba(7,9,12,.78)), url(${item.background})`
           : undefined,
       }}
     >
       <div className="media-detail-inner">
-        <div
-          className="detail-poster"
-          style={{
-            backgroundImage: item.poster ? `url(${item.poster})` : undefined,
-          }}
-        />
+        <div className="detail-poster">
+          {item.poster ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={item.poster}
+              alt=""
+              loading="eager"
+              decoding="async"
+              referrerPolicy="no-referrer"
+            />
+          ) : null}
+        </div>
         <div>
           <div className="row gap" style={{ justifyContent: "space-between" }}>
             <h3>{item.name}</h3>
             {onClose && (
-              <button type="button" className="btn ghost compact" onClick={onClose}>
+              <button
+                type="button"
+                className="btn ghost compact"
+                onClick={onClose}
+              >
                 Cerrar
               </button>
             )}
@@ -77,7 +93,9 @@ export function MediaDetail({
             {item.type === "series" ? "Serie" : "Película"}
             {item.year ? ` · ${item.year}` : ""}
             {item.rating ? ` · ★ ${item.rating}` : ""}
-            {item.genres?.length ? ` · ${item.genres.slice(0, 3).join(", ")}` : ""}
+            {item.genres?.length
+              ? ` · ${item.genres.slice(0, 3).join(", ")}`
+              : ""}
           </p>
           {item.description && <p className="detail-desc">{item.description}</p>}
           {children}

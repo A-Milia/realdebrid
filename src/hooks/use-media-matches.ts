@@ -42,7 +42,7 @@ export function useMediaMatches(filenames: string[], limit = 120) {
 
     (async () => {
       const next = { ...cache };
-      const chunk = 5;
+      const chunk = 10;
       for (let i = 0; i < missing.length; i += chunk) {
         const batch = missing.slice(i, i + chunk);
         await Promise.all(

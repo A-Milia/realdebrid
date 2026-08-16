@@ -19,7 +19,14 @@ export async function GET(req: NextRequest) {
       parsed.type,
       parsed.year,
     );
-    return NextResponse.json({ match, parsed });
+    return NextResponse.json(
+      { match, parsed },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+        },
+      },
+    );
   } catch (err) {
     return NextResponse.json(
       {

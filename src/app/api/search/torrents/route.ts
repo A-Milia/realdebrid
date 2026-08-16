@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchTorrentioStreams } from "@/lib/cinemeta";
 import { parseTorrentioTitle, type MediaType } from "@/lib/media";
 
+export const runtime = "nodejs";
+
+function qualityScore(q?: string) {
+  const s = (q || "").toLowerCase();
+  if (s.includes("2160") || s.includes("4k") || s.includes("uhd")) return 400;
+  if (s.includes("1080")) return 300;
+  if (s.includes("720")) return 200;
+  if (s.includes("480")) return 100;
+  return 0;
+}
+
 export async function GET(req: NextRequest) {
   const imdbId = req.nextUrl.searchParams.get("imdbId")?.trim();
   const type = (req.nextUrl.searchParams.get("type") || "movie") as MediaType;
@@ -39,9 +50,21 @@ export async function GET(req: NextRequest) {
           fileIdx: s.fileIdx,
         };
       })
-      .slice(0, 60);
+      .sort((a, b) => {
+        const seedDiff = Number(b.seeds || 0) - Number(a.seeds || 0);
+        if (seedDiff) return seedDiff;
+        return qualityScore(b.quality) - qualityScore(a.quality);
+      })
+      .slice(0, 40);
 
-    return NextResponse.json({ torrents });
+    return NextResponse.json(
+      { torrents },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=900",
+        },
+      },
+    );
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Torrent search failed" },
