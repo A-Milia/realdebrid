@@ -12,6 +12,7 @@ import { MediaCard, MediaDetail } from "./media-card";
 type Props = {
   token: string;
   onAdded: () => void;
+  onGoLibrary?: () => void;
 };
 
 const CLIENT_CACHE = "rd.search.v1";
@@ -53,7 +54,7 @@ function writeClientCache(key: string, results: MediaItem[]) {
   }
 }
 
-export function SearchPanel({ token, onAdded }: Props) {
+export function SearchPanel({ token, onAdded, onGoLibrary }: Props) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"all" | "movie" | "series">("all");
   const [results, setResults] = useState<MediaItem[]>([]);
@@ -62,6 +63,7 @@ export function SearchPanel({ token, onAdded }: Props) {
   const [season, setSeason] = useState(1);
   const [episode, setEpisode] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [addingHash, setAddingHash] = useState<string | null>(null);
   const [loadingTorrents, setLoadingTorrents] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -204,6 +206,7 @@ export function SearchPanel({ token, onAdded }: Props) {
   }
 
   async function addTorrent(t: TorrentCandidate) {
+    setAddingHash(t.infoHash);
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -221,15 +224,16 @@ export function SearchPanel({ token, onAdded }: Props) {
           })),
         });
         setPicked(new Set(info.files.map((f) => f.id)));
-        setMessage("Elige archivos para empezar la descarga en Real-Debrid");
+        setMessage("Elige qué archivos quieres guardar");
       } else {
-        setMessage(`Añadido a Real-Debrid: ${info.filename || t.title}`);
+        setMessage("Añadido a tu colección. Aparecerá en «En proceso».");
         onAdded();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo añadir");
     } finally {
       setBusy(false);
+      setAddingHash(null);
     }
   }
 
@@ -243,7 +247,7 @@ export function SearchPanel({ token, onAdded }: Props) {
         [...picked].sort((a, b) => a - b).join(","),
       );
       setFilePick(null);
-      setMessage("Archivos seleccionados — aparece en tu biblioteca");
+      setMessage("Guardado. Lo verás en Colección → En proceso.");
       onAdded();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al seleccionar");
@@ -252,13 +256,20 @@ export function SearchPanel({ token, onAdded }: Props) {
     }
   }
 
+  function closeDetail() {
+    setSelected(null);
+    setTorrents([]);
+    setFilePick(null);
+    setMessage(null);
+  }
+
   return (
     <section className="panel">
       <div className="panel-head">
         <div>
-          <h2>Buscar y añadir</h2>
+          <h2>Buscar</h2>
           <p>
-            Escribe y busca al instante. Resultados listos para Real-Debrid.
+            Elige una película o serie. Se abre con los enlaces para añadirla.
             {elapsedMs != null && elapsedMs > 0 && <> · {elapsedMs} ms</>}
             {elapsedMs === 0 && <> · caché</>}
             {tmdbEnabled === true && <> · TMDB</>}
@@ -305,8 +316,8 @@ export function SearchPanel({ token, onAdded }: Props) {
         </div>
       </form>
 
-      {error && <p className="banner error">{error}</p>}
-      {message && <p className="banner ok">{message}</p>}
+      {error && !selected && <p className="banner error">{error}</p>}
+      {message && !selected && <p className="banner ok">{message}</p>}
 
       {busy && !results.length && (
         <div className="media-grid">
@@ -332,9 +343,13 @@ export function SearchPanel({ token, onAdded }: Props) {
       )}
 
       {selected && (
-        <MediaDetail item={selected} onClose={() => setSelected(null)}>
+        <MediaDetail
+          item={selected}
+          title="Añadir a tu colección"
+          onClose={closeDetail}
+        >
           {selected.type === "series" && (
-            <div className="row gap wrap" style={{ margin: "0.8rem 0" }}>
+            <div className="row gap wrap episode-pick">
               <label className="inline-field">
                 Temporada
                 <input
@@ -358,10 +373,18 @@ export function SearchPanel({ token, onAdded }: Props) {
                 className="btn secondary compact"
                 onClick={() => void loadTorrents(selected, season, episode)}
               >
-                Actualizar torrents
+                Buscar episodio
               </button>
             </div>
           )}
+
+          {error && <p className="banner error">{error}</p>}
+          {message && <p className="banner ok">{message}</p>}
+
+          <div className="torrent-section-head">
+            <h4>Enlaces disponibles</h4>
+            <p>Pulsa «Añadir» en el que quieras guardar en Real-Debrid.</p>
+          </div>
 
           {loadingTorrents ? (
             <div className="torrent-list">
@@ -369,83 +392,115 @@ export function SearchPanel({ token, onAdded }: Props) {
                 <div
                   key={i}
                   className="skeleton-card"
-                  style={{ minHeight: 56, borderRadius: 14 }}
+                  style={{ minHeight: 72, borderRadius: 14 }}
                 />
               ))}
             </div>
           ) : (
             <div className="torrent-list">
-              {torrents.map((t) => (
-                <div key={t.infoHash} className="torrent-row">
-                  <div>
-                    <strong>{t.title}</strong>
-                    <small>
-                      {[
-                        t.quality,
-                        t.size,
-                        t.seeds ? `${t.seeds} seeds` : null,
-                        t.source,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </small>
+              {torrents.map((t) => {
+                const adding = addingHash === t.infoHash;
+                return (
+                  <div key={t.infoHash} className="torrent-row">
+                    <div className="torrent-copy">
+                      <strong title={t.title}>{t.title}</strong>
+                      <small>
+                        {[
+                          t.quality,
+                          t.size,
+                          t.seeds ? `${t.seeds} seeds` : null,
+                          t.source,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </small>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn primary compact"
+                      disabled={busy}
+                      onClick={() => void addTorrent(t)}
+                    >
+                      {adding ? "Añadiendo…" : "Añadir"}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="btn primary compact"
-                    disabled={busy}
-                    onClick={() => void addTorrent(t)}
-                  >
-                    Añadir
-                  </button>
-                </div>
-              ))}
+                );
+              })}
               {!torrents.length && !loadingTorrents && (
-                <p className="hint">No hay resultados de torrent.</p>
+                <p className="hint">No hay enlaces para este título.</p>
               )}
             </div>
+          )}
+
+          {onGoLibrary &&
+            message &&
+            /colecci[oó]n/i.test(message) && (
+            <button
+              type="button"
+              className="btn secondary"
+              style={{ marginTop: "0.85rem", width: "100%" }}
+              onClick={() => {
+                closeDetail();
+                onGoLibrary();
+              }}
+            >
+              Ver mi colección
+            </button>
           )}
         </MediaDetail>
       )}
 
       {filePick && (
-        <div className="modal-card">
-          <h3>Selecciona archivos</h3>
-          <div className="file-list">
-            {filePick.files.map((f) => (
-              <label key={f.id} className="file-row">
-                <input
-                  type="checkbox"
-                  checked={picked.has(f.id)}
-                  onChange={() =>
-                    setPicked((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(f.id)) next.delete(f.id);
-                      else next.add(f.id);
-                      return next;
-                    })
-                  }
-                />
-                <span>{f.path}</span>
-              </label>
-            ))}
-          </div>
-          <div className="row gap">
-            <button
-              type="button"
-              className="btn secondary"
-              onClick={() => setFilePick(null)}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn primary"
-              disabled={!picked.size || busy}
-              onClick={() => void confirmFiles()}
-            >
-              Confirmar
-            </button>
+        <div className="detail-modal file-pick-modal" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="detail-backdrop"
+            aria-label="Cerrar"
+            onClick={() => setFilePick(null)}
+          />
+          <div className="detail-modal-panel">
+            <div className="modal-card file-pick-card">
+              <h3>Elige archivos</h3>
+              <p className="hint">
+                Marca lo que quieres guardar. Luego aparecerá en tu colección.
+              </p>
+              <div className="file-list">
+                {filePick.files.map((f) => (
+                  <label key={f.id} className="file-row">
+                    <input
+                      type="checkbox"
+                      checked={picked.has(f.id)}
+                      onChange={() =>
+                        setPicked((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(f.id)) next.delete(f.id);
+                          else next.add(f.id);
+                          return next;
+                        })
+                      }
+                    />
+                    <span>{f.path}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="row gap">
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setFilePick(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={!picked.size || busy}
+                  onClick={() => void confirmFiles()}
+                >
+                  Guardar en colección
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
