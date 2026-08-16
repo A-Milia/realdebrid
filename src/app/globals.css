@@ -39,16 +39,17 @@ body {
 }
 
 html {
-  background: var(--bg);
+  background: #07090c !important;
+  color-scheme: dark !important;
 }
 
 body {
   margin: 0;
-  color: var(--ink);
+  color: var(--ink) !important;
   background:
     radial-gradient(900px 420px at 50% -12%, rgba(45, 212, 191, 0.12), transparent 55%),
     radial-gradient(700px 360px at 100% 10%, rgba(56, 120, 255, 0.08), transparent 50%),
-    var(--bg);
+    #07090c !important;
   font-family: var(--font-body);
   overscroll-behavior-y: none;
 }

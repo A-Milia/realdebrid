@@ -47,9 +47,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="es"
-      className={`${outfit.variable} ${syne.variable} h-full antialiased`}
+      className={`dark ${outfit.variable} ${syne.variable} h-full antialiased`}
+      style={{ colorScheme: "dark", backgroundColor: "#07090c" }}
     >
-      <body className="min-h-full">
+      <body
+        className="min-h-full"
+        style={{ backgroundColor: "#07090c", color: "#f2f4f7" }}
+      >
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
