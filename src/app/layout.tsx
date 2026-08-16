@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Outfit, Syne } from "next/font/google";
 import { AuthProvider } from "@/components/auth-provider";
 import "./globals.css";
@@ -15,9 +15,32 @@ const syne = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "RealDebrid — Manager",
+  title: "RealDebrid",
   description:
-    "Gestiona tu biblioteca Real-Debrid: descargas, torrents, unrestrict y hosts con una UI moderna y rápida.",
+    "App móvil para buscar, añadir y gestionar tu biblioteca Real-Debrid.",
+  applicationName: "RealDebrid",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "RealDebrid",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-touch-icon.png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#07090c",
+  colorScheme: "dark",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

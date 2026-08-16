@@ -146,8 +146,7 @@ export function LoginScreen() {
               . Se guarda solo en este navegador.
             </p>
             <p className="hint callout">
-              Esto <strong>no</strong> es la API key de TMDB. TMDB (carátulas
-              extra) se configura solo en el servidor/Vercel, nunca aquí.
+              Solo el token de Real-Debrid. Las carátulas van en el servidor.
             </p>
             <button type="submit" className="btn primary" disabled={busy}>
               {busy ? "Entrando…" : "Entrar"}
